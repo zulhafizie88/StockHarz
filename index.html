@@ -1,0 +1,1204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>StockHarz</title>
+<meta name="description" content="StockHarz: free stock research, watchlist, alerts and portfolio tracker.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Sora:wght@600;700&display=swap">
+<style>
+/* Layout: sticky top bar with search + nav, single content column (max 1180px) with card grids that stack on phones. */
+:root{
+  --bg:#F3F6F7; --surface:#FFFFFF; --surface-2:#EAF0F1; --fg:#0E1A1F; --muted:#5A6B72; --line:#D8E1E4;
+  --accent:#0B7A75; --accent-fg:#FFFFFF; --accent-soft:#D6EEEC; --gold:#B7860B; --gold-soft:#F6ECD2;
+  --up:#13834A; --up-soft:#DCF2E5; --down:#C3302A; --down-soft:#F9E0DE; --warn:#B26A00; --warn-soft:#FBEBD3;
+  --shadow:0 1px 2px rgba(14,26,31,.06),0 4px 16px rgba(14,26,31,.05);
+  --f-display:"Sora","Segoe UI",system-ui,sans-serif; --f-body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:12px; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0A1215; --surface:#111C20; --surface-2:#17262B; --fg:#E4EDEF; --muted:#8DA1A8; --line:#223239;
+  --accent:#2DB5AA; --accent-fg:#04201E; --accent-soft:#123B38; --gold:#E8B33A; --gold-soft:#3A2F12;
+  --up:#3DCB7F; --up-soft:#103524; --down:#FF6E61; --down-soft:#3E1B18; --warn:#F2A33A; --warn-soft:#3A2810;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0A1215; --surface:#111C20; --surface-2:#17262B; --fg:#E4EDEF; --muted:#8DA1A8; --line:#223239;
+  --accent:#2DB5AA; --accent-fg:#04201E; --accent-soft:#123B38; --gold:#E8B33A; --gold-soft:#3A2F12;
+  --up:#3DCB7F; --up-soft:#103524; --down:#FF6E61; --down-soft:#3E1B18; --warn:#F2A33A; --warn-soft:#3A2810;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--f-body);-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:1.6rem} h2{font-size:1.15rem} h3{font-size:.95rem}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num,.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)} .small{font-size:.8rem} .up{color:var(--up)} .down{color:var(--down)}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.topbar .wrap{display:flex;align-items:center;gap:16px;padding-block:10px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px;font-family:var(--f-display);font-weight:700;font-size:1.1rem;color:var(--fg)}
+.brand:hover{text-decoration:none}
+.brand svg{flex:none}
+.search{position:relative;flex:1 1 260px;min-width:0;max-width:440px}
+.search input{width:100%;padding:9px 12px 9px 34px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2)}
+.search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.results{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);max-height:340px;overflow:auto;z-index:30}
+.results button{display:flex;gap:10px;width:100%;text-align:left;padding:9px 12px;border:0;background:none;cursor:pointer;align-items:baseline}
+.results button:hover,.results button.on{background:var(--surface-2)}
+.results b{font-family:var(--f-mono);min-width:64px}
+nav.main{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+nav.main a{padding:7px 11px;border-radius:8px;color:var(--muted);font-weight:500;white-space:nowrap}
+nav.main a:hover{background:var(--surface-2);text-decoration:none;color:var(--fg)}
+nav.main a.on{background:var(--accent-soft);color:var(--accent)}
+@media (max-width:760px){nav.main{order:3;width:100%}}
+
+main{padding-block:22px 48px;display:grid;gap:18px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.split{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px}
+@media (max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
+.card > h2,.card > h3,.card-h{margin-bottom:12px}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.card-h h2,.card-h h3{margin:0}
+.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.sm{padding:5px 10px;font-size:.82rem}
+.btn.ghost{border-color:transparent;background:none}
+.btn.danger{color:var(--down)}
+.btn[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:9px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:none;padding:5px 10px;border-radius:7px;cursor:pointer;font-size:.82rem;font-weight:500;color:var(--muted)}
+.seg button.on{background:var(--surface);color:var(--fg);box-shadow:var(--shadow)}
+input.in,select.in{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);min-width:0}
+label.f{display:grid;gap:4px;font-size:.8rem;color:var(--muted);font-weight:500}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+
+/* stock header */
+.sh{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.logo{width:52px;height:52px;border-radius:12px;background:var(--surface-2);display:grid;place-items:center;overflow:hidden;flex:none;font-family:var(--f-display);font-weight:700;color:var(--muted)}
+.logo img{width:100%;height:100%;object-fit:contain;background:#fff}
+.price{font-family:var(--f-mono);font-size:2rem;font-weight:500;line-height:1.1}
+.chg{font-family:var(--f-mono);font-weight:500}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:.75rem;font-weight:600;background:var(--surface-2);color:var(--muted);white-space:nowrap}
+.pill.good{background:var(--up-soft);color:var(--up)} .pill.bad{background:var(--down-soft);color:var(--down)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.acc{background:var(--accent-soft);color:var(--accent)} .pill.gold{background:var(--gold-soft);color:var(--gold)}
+.tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:thin}
+.tabs a{padding:10px 12px;color:var(--muted);font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs a:hover{color:var(--fg);text-decoration:none}
+.tabs a.on{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1px;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stat{background:var(--surface);padding:10px 12px;min-width:0;outline:1px solid var(--line)}
+.stat .k{font-size:.75rem;color:var(--muted);display:flex;gap:4px;align-items:center}
+.stat .v{font-family:var(--f-mono);font-size:1rem;font-weight:500;overflow-wrap:anywhere}
+.tip{display:inline-grid;place-items:center;width:14px;height:14px;border-radius:50%;border:1px solid var(--line);font-size:9px;cursor:help;color:var(--muted)}
+.kpi{display:grid;gap:2px}
+.kpi .v{font-family:var(--f-mono);font-size:1.4rem;font-weight:500}
+.range{position:relative;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--down-soft),var(--surface-2),var(--up-soft));margin:8px 0 4px}
+.range i{position:absolute;top:-4px;width:3px;height:14px;border-radius:2px;background:var(--fg);transform:translateX(-50%)}
+.bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+.bar > span{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.stack{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--surface-2)}
+.stack span{height:100%}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;margin:0 -4px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{padding:9px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+td.r,th.r{text-align:right}
+tbody tr:hover{background:var(--surface-2)}
+tr.click{cursor:pointer}
+td .sym{font-family:var(--f-mono);font-weight:600;color:var(--fg)}
+.best{background:var(--up-soft);color:var(--up);border-radius:6px;padding:1px 6px}
+
+.chart-box{position:relative;height:320px}
+.chart-box.sm{height:200px} .chart-box.xs{height:140px}
+.news{display:grid;gap:0}
+.news a.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);color:var(--fg)}
+.news a.item:hover{text-decoration:none}
+.news a.item:hover .h{color:var(--accent)}
+.news .h{font-weight:600;line-height:1.35}
+.news .s{color:var(--muted);font-size:.85rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px}
+.news img{width:96px;height:64px;object-fit:cover;border-radius:8px;background:var(--surface-2)}
+@media (max-width:520px){.news img{display:none}}
+
+.note{padding:12px 14px;border-radius:10px;background:var(--surface-2);color:var(--muted);font-size:.85rem}
+.note.warn{background:var(--warn-soft);color:var(--warn)}
+.empty{text-align:center;padding:28px 12px;color:var(--muted);display:grid;gap:10px;justify-items:center}
+.setup{border:1px dashed var(--accent);background:var(--accent-soft);color:var(--fg);border-radius:var(--r);padding:16px;display:grid;gap:8px}
+.skel{height:120px;border-radius:10px;background:linear-gradient(90deg,var(--surface-2),var(--line),var(--surface-2));background-size:200% 100%;animation:sk 1.2s linear infinite}
+@keyframes sk{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skel{animation:none}}
+.insight{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;padding:10px 0;border-bottom:1px solid var(--line);align-items:start}
+.insight:last-child{border-bottom:0}
+.dot{width:10px;height:10px;border-radius:50%;margin-top:6px}
+.dot.good{background:var(--up)} .dot.bad{background:var(--down)} .dot.info{background:var(--accent)} .dot.warn{background:var(--warn)}
+.score-ring{width:132px;height:132px;flex:none}
+.grade{font-family:var(--f-display);font-weight:700}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:inline-flex;gap:6px;align-items:baseline;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--fg);font-size:.85rem}
+.chip:hover{text-decoration:none;border-color:var(--accent)}
+.chip b{font-family:var(--f-mono)}
+#toasts{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));display:grid;gap:8px;z-index:50;max-width:min(360px,calc(100vw - 32px))}
+.toast{background:var(--fg);color:var(--bg);padding:12px 14px;border-radius:10px;box-shadow:var(--shadow);font-size:.88rem}
+footer{border-top:1px solid var(--line);padding-block:18px 28px;color:var(--muted);font-size:.8rem}
+dl.gl{display:grid;gap:14px;margin:0}
+dl.gl dt{font-weight:600} dl.gl dd{margin:2px 0 0;color:var(--muted);max-width:70ch}
+.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
+.hide-sm{} @media (max-width:640px){.hide-sm{display:none}}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#home" aria-label="StockHarz home">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="var(--accent)"/><path d="M6 19l5-6 4 3 7-8" fill="none" stroke="var(--accent-fg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="8" r="2" fill="var(--gold)"/></svg>
+      StockHarz
+    </a>
+    <div class="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="Search a stock, e.g. AAPL or Microsoft" autocomplete="off" aria-label="Search stocks">
+      <div id="results" class="results" hidden></div>
+    </div>
+    <nav class="main" id="nav">
+      <a href="#home" data-p="home">Home</a>
+      <a href="#watchlist" data-p="watchlist">Watchlist</a>
+      <a href="#portfolio" data-p="portfolio">Portfolio</a>
+      <a href="#alerts" data-p="alerts">Alerts</a>
+      <a href="#compare" data-p="compare">Compare</a>
+      <a href="#glossary" data-p="glossary">Glossary</a>
+      <a href="#settings" data-p="settings">Settings</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap" id="app"></main>
+<footer><div class="wrap">StockHarz. Prices and fundamentals from Finnhub, price history from Twelve Data. US quotes are real time on the free plans; some data can be delayed. Everything here is for research only and is not investment advice.</div></footer>
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+'use strict';
+/* ============ utilities ============ */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? esc(u) : '#';
+const isNum = v => v !== null && v !== undefined && v !== '' && isFinite(v);
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const median = a => { const v = a.filter(isNum).sort((x, y) => x - y); if (!v.length) return null; const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+const avg = a => { const v = a.filter(isNum); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+const isoDay = off => { const d = new Date(Date.now() + off * 864e5); return d.toISOString().slice(0, 10); };
+const uid = () => Math.random().toString(36).slice(2, 10);
+const SYM_RE = /^[A-Z0-9.\-]{1,12}$/;
+
+const fmt = {
+  n(v, d = 2) { return isNum(v) ? Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) : '–'; },
+  money(v, d = 2) { return isNum(v) ? (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) : '–'; },
+  pct(v, d = 2, sign = false) { return isNum(v) ? (sign && v > 0 ? '+' : '') + Number(v).toFixed(d) + '%' : '–'; },
+  big(v) { // v in plain units
+    if (!isNum(v)) return '–'; const a = Math.abs(v), s = v < 0 ? '-' : '';
+    if (a >= 1e12) return s + '$' + (a / 1e12).toFixed(2) + 'T';
+    if (a >= 1e9) return s + '$' + (a / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(2) + 'M';
+    if (a >= 1e3) return s + '$' + (a / 1e3).toFixed(1) + 'K';
+    return s + '$' + a.toFixed(0);
+  },
+  vol(v) { if (!isNum(v)) return '–'; if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B'; if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M'; if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K'; return String(Math.round(v)); },
+  x(v, d = 1) { return isNum(v) ? Number(v).toFixed(d) + '×' : '–'; },
+  ago(ts) { const s = (Date.now() / 1000) - ts; if (s < 3600) return Math.max(1, Math.round(s / 60)) + 'm ago'; if (s < 86400) return Math.round(s / 3600) + 'h ago'; return Math.round(s / 86400) + 'd ago'; },
+  date(d) { const x = typeof d === 'number' ? new Date(d * 1000) : new Date(d); return isNaN(x) ? '–' : x.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); },
+};
+const cls = v => isNum(v) ? (v > 0 ? 'up' : v < 0 ? 'down' : '') : '';
+
+/* ============ storage ============ */
+const PFX = 'stockharz:';
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(PFX + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(PFX + k, JSON.stringify(v)); } catch {} },
+};
+const state = {
+  keys: store.get('keys', { finnhub: '', twelve: '' }),
+  watchlist: store.get('watchlist', ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'KO']),
+  portfolio: store.get('portfolio', []),
+  alerts: store.get('alerts', []),
+  theme: store.get('theme', 'system'),
+  recent: store.get('recent', []),
+  compare: store.get('compare', ['AAPL', 'MSFT', 'GOOGL']),
+};
+const save = k => store.set(k, state[k]);
+
+function applyTheme() {
+  const r = document.documentElement;
+  if (state.theme === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', state.theme);
+}
+applyTheme();
+
+function toast(msg, ms = 4500) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  $('#toasts').appendChild(t); setTimeout(() => t.remove(), ms);
+}
+
+/* ============ API layer ============ */
+class ApiError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
+const mem = new Map();
+function cacheGet(k) {
+  const e = mem.get(k); if (e && e.exp > Date.now()) return e.v;
+  try { const raw = localStorage.getItem(PFX + 'c:' + k); if (raw) { const e2 = JSON.parse(raw); if (e2.exp > Date.now()) { mem.set(k, e2); return e2.v; } localStorage.removeItem(PFX + 'c:' + k); } } catch {}
+  return undefined;
+}
+function cacheSet(k, v, ttl, persist) {
+  const e = { v, exp: Date.now() + ttl }; mem.set(k, e);
+  if (persist) try { localStorage.setItem(PFX + 'c:' + k, JSON.stringify(e)); } catch {}
+}
+const inflight = new Map();
+let active = 0; const queue = [];
+const slot = () => new Promise(res => { const go = () => { active++; res(); }; active < 4 ? go() : queue.push(go); });
+const release = () => { active--; const n = queue.shift(); if (n) n(); };
+
+async function fh(path, params = {}, { ttl = 60e3, persist = false } = {}) {
+  const key = (state.keys.finnhub || '').trim();
+  if (!key) throw new ApiError('nokey', 'Add your free Finnhub key in Settings to load market data.');
+  const qs = new URLSearchParams(params).toString();
+  const ck = 'fh' + path + '?' + qs;
+  const hit = cacheGet(ck); if (hit !== undefined) return hit;
+  if (inflight.has(ck)) return inflight.get(ck);
+  const p = (async () => {
+    await slot();
+    try {
+      let r;
+      try { r = await fetch(`https://finnhub.io/api/v1${path}?${qs}${qs ? '&' : ''}token=${encodeURIComponent(key)}`); }
+      catch { throw new ApiError('network', 'Could not reach Finnhub. Check your internet connection.'); }
+      if (r.status === 401) throw new ApiError('badkey', 'Finnhub did not accept your key. Check it in Settings.');
+      if (r.status === 403) throw new ApiError('premium', 'This data is only on paid Finnhub plans.');
+      if (r.status === 429) throw new ApiError('rate', 'You hit the free limit of 60 requests a minute. Wait a moment and refresh.');
+      if (!r.ok) throw new ApiError('http', `Finnhub returned an error (${r.status}).`);
+      const j = await r.json();
+      cacheSet(ck, j, ttl, persist);
+      return j;
+    } finally { release(); inflight.delete(ck); }
+  })();
+  inflight.set(ck, p);
+  return p;
+}
+
+async function td(path, params, { ttl = 10 * 60e3 } = {}) {
+  const own = (state.keys.twelve || '').trim();
+  const ck = 'td' + path + '?' + new URLSearchParams(params);
+  const hit = cacheGet(ck); if (hit !== undefined) return hit;
+  if (inflight.has(ck)) return inflight.get(ck);
+  const p = (async () => {
+    try {
+      let r;
+      try { r = await fetch(`https://api.twelvedata.com${path}?${new URLSearchParams({ ...params, apikey: own || 'demo' })}`); }
+      catch { throw new ApiError('network', 'Could not reach Twelve Data. Check your internet connection.'); }
+      const j = await r.json().catch(() => null);
+      if (!j || j.status === 'error') {
+        if (!own) throw new ApiError('nokey-td', 'Price charts for this stock need your free Twelve Data key. The built-in demo key only covers AAPL. Add your key in Settings.');
+        if (j && j.code === 429) throw new ApiError('rate', 'You hit the Twelve Data free limit of 8 chart requests a minute. Wait a minute and try again.');
+        if (j && j.code === 401) throw new ApiError('badkey', 'Twelve Data did not accept your key. Check it in Settings.');
+        throw new ApiError('td', (j && j.message) || 'Price history is not available for this symbol.');
+      }
+      cacheSet(ck, j, ttl, false);
+      return j;
+    } finally { inflight.delete(ck); }
+  })();
+  inflight.set(ck, p);
+  return p;
+}
+
+const RANGES = {
+  '1D': { interval: '5min', outputsize: 160, show: 0 },
+  '1M': { interval: '1day', outputsize: 222, show: 22 },
+  '6M': { interval: '1day', outputsize: 326, show: 126 },
+  '1Y': { interval: '1day', outputsize: 452, show: 252 },
+  '5Y': { interval: '1week', outputsize: 461, show: 261 },
+  'MAX': { interval: '1month', outputsize: 600, show: 600 },
+};
+
+const FIN_CONCEPTS = {
+  revenue: ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet', 'RevenueFromContractWithCustomerIncludingAssessedTax', 'SalesRevenueGoodsNet'],
+  grossProfit: ['GrossProfit'],
+  operatingIncome: ['OperatingIncomeLoss'],
+  netIncome: ['NetIncomeLoss', 'NetIncomeLossAvailableToCommonStockholdersBasic', 'ProfitLoss'],
+  eps: ['EarningsPerShareDiluted', 'EarningsPerShareBasicAndDiluted', 'EarningsPerShareBasic'],
+  cfo: ['NetCashProvidedByUsedInOperatingActivities', 'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations'],
+  capex: ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets'],
+  dividendsPaid: ['PaymentsOfDividends', 'PaymentsOfDividendsCommonStock'],
+  buybacks: ['PaymentsForRepurchaseOfCommonStock'],
+  assets: ['Assets'],
+  liabilities: ['Liabilities'],
+  equity: ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'],
+  cash: ['CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents'],
+  ltDebt: ['LongTermDebtNoncurrent', 'LongTermDebt'],
+  stDebt: ['LongTermDebtCurrent'],
+  cp: ['CommercialPaper', 'ShortTermBorrowings'],
+};
+function pickConcept(items, names) {
+  if (!Array.isArray(items)) return null;
+  for (const n of names) {
+    const it = items.find(i => { const c = String(i.concept || ''); return c === n || c.endsWith('_' + n) || c.endsWith(':' + n); });
+    if (it && isNum(it.value)) return +it.value;
+  }
+  return null;
+}
+
+const D = {
+  quote: s => fh('/quote', { symbol: s }, { ttl: 30e3 }),
+  profile: s => fh('/stock/profile2', { symbol: s }, { ttl: 864e5, persist: true }),
+  metrics: s => fh('/stock/metric', { symbol: s, metric: 'all' }, { ttl: 6 * 36e5 }),
+  recs: s => fh('/stock/recommendation', { symbol: s }, { ttl: 12 * 36e5, persist: true }),
+  peers: s => fh('/stock/peers', { symbol: s }, { ttl: 864e5, persist: true }),
+  earnings: s => fh('/stock/earnings', { symbol: s }, { ttl: 12 * 36e5, persist: true }),
+  news: s => fh('/company-news', { symbol: s, from: isoDay(-10), to: isoDay(0) }, { ttl: 15 * 60e3 }),
+  marketNews: () => fh('/news', { category: 'general' }, { ttl: 15 * 60e3 }),
+  search: q => fh('/search', { q, exchange: 'US' }, { ttl: 36e5 }),
+  calendar: s => fh('/calendar/earnings', { from: isoDay(0), to: isoDay(120), symbol: s }, { ttl: 12 * 36e5, persist: true }),
+  async financials(s) {
+    const ck = 'fin2:' + s; const hit = cacheGet(ck); if (hit !== undefined) return hit;
+    const j = await fh('/stock/financials-reported', { symbol: s, freq: 'annual' }, { ttl: 1 });
+    const seen = new Set(), years = [];
+    for (const row of (j && j.data) || []) {
+      const y = row.year; if (!y || seen.has(y)) continue;
+      if (row.form && !/10-K|20-F|40-F/i.test(row.form)) continue;
+      seen.add(y);
+      const rep = row.report || {}, all = [...(rep.ic || []), ...(rep.cf || []), ...(rep.bs || [])];
+      const o = { year: y, endDate: row.endDate };
+      for (const [k, names] of Object.entries(FIN_CONCEPTS)) o[k] = pickConcept(k === 'assets' || k === 'liabilities' || k === 'equity' || k === 'cash' || /Debt|cp/.test(k) ? rep.bs : (['cfo', 'capex', 'dividendsPaid', 'buybacks'].includes(k) ? rep.cf : rep.ic), names) ?? pickConcept(all, names);
+      o.fcf = isNum(o.cfo) ? o.cfo - Math.abs(o.capex || 0) : null;
+      o.debt = [o.ltDebt, o.stDebt, o.cp].some(isNum) ? (o.ltDebt || 0) + (o.stDebt || 0) + (o.cp || 0) : null;
+      years.push(o);
+      if (years.length >= 8) break;
+    }
+    years.sort((a, b) => a.year - b.year);
+    const out = { years };
+    cacheSet(ck, out, 864e5, true);
+    return out;
+  },
+  async candles(s, range = '1Y') {
+    const r = RANGES[range];
+    const j = await td('/time_series', { symbol: s, interval: r.interval, outputsize: r.outputsize, order: 'ASC' });
+    let rows = (j.values || []).map(v => ({ t: v.datetime, c: +v.close, o: +v.open, h: +v.high, l: +v.low, v: +v.volume })).filter(x => isNum(x.c));
+    if (rows.length > 1 && rows[0].t > rows[rows.length - 1].t) rows.reverse();
+    return rows;
+  },
+};
+
+/* ============ derived numbers ============ */
+const mv = (m, ...keys) => { for (const k of keys) { const v = m && m[k]; if (isNum(v)) return +v; } return null; };
+function fundamentals(q, p, met, fin) {
+  const m = (met && met.metric) || {};
+  const price = q && isNum(q.c) && q.c > 0 ? q.c : null;
+  const sharesM = p && isNum(p.shareOutstanding) ? p.shareOutstanding : null;
+  const pfcf = mv(m, 'pfcfShareTTM', 'pfcfShareAnnual');
+  const last = fin && fin.years && fin.years.length ? fin.years[fin.years.length - 1] : null;
+  const f = {
+    price, sharesM,
+    mcap: (p && isNum(p.marketCapitalization) ? p.marketCapitalization : mv(m, 'marketCapitalization')),
+    pe: mv(m, 'peTTM', 'peBasicExclExtraTTM', 'peExclExtraTTM', 'peNormalizedAnnual'),
+    pb: mv(m, 'pbQuarterly', 'pbAnnual', 'pb'),
+    ps: mv(m, 'psTTM', 'psAnnual'),
+    pfcf,
+    eps: mv(m, 'epsTTM', 'epsBasicExclExtraItemsTTM', 'epsExclExtraItemsTTM', 'epsInclExtraItemsTTM', 'epsAnnual'),
+    bvps: mv(m, 'bookValuePerShareQuarterly', 'bookValuePerShareAnnual'),
+    divYield: mv(m, 'currentDividendYieldTTM', 'dividendYieldIndicatedAnnual'),
+    dps: mv(m, 'dividendPerShareTTM', 'dividendPerShareAnnual', 'dividendsPerShareTTM'),
+    payout: mv(m, 'payoutRatioTTM', 'payoutRatioAnnual'),
+    divG5: mv(m, 'dividendGrowthRate5Y'),
+    beta: mv(m, 'beta'),
+    hi52: mv(m, '52WeekHigh'), lo52: mv(m, '52WeekLow'), ret52: mv(m, '52WeekPriceReturnDaily'),
+    vol10: mv(m, '10DayAverageTradingVolume'),
+    grossM: mv(m, 'grossMarginTTM', 'grossMarginAnnual'), opM: mv(m, 'operatingMarginTTM', 'operatingMarginAnnual'), netM: mv(m, 'netProfitMarginTTM', 'netProfitMarginAnnual'),
+    roe: mv(m, 'roeTTM', 'roeRfy'), roa: mv(m, 'roaTTM', 'roaRfy'), roi: mv(m, 'roiTTM', 'roiAnnual'),
+    revG: mv(m, 'revenueGrowthTTMYoy', 'revenueGrowthQuarterlyYoy'), revG3: mv(m, 'revenueGrowth3Y'), revG5: mv(m, 'revenueGrowth5Y'),
+    epsG: mv(m, 'epsGrowthTTMYoy'), epsG3: mv(m, 'epsGrowth3Y'), epsG5: mv(m, 'epsGrowth5Y'),
+    curRatio: mv(m, 'currentRatioQuarterly', 'currentRatioAnnual'), quick: mv(m, 'quickRatioQuarterly', 'quickRatioAnnual'),
+    de: mv(m, 'totalDebt/totalEquityQuarterly', 'totalDebt/totalEquityAnnual'),
+    intCov: mv(m, 'netInterestCoverageTTM', 'netInterestCoverageAnnual'),
+    last,
+  };
+  f.fcfPS = price && pfcf && pfcf > 0 ? price / pfcf : (last && isNum(last.fcf) && sharesM ? last.fcf / (sharesM * 1e6) : null);
+  if (!isNum(f.pe) && price && f.eps > 0) f.pe = price / f.eps;
+  return f;
+}
+
+function dcfModel({ fcf, g1, gT, r, netCash, shares }) {
+  if (!(fcf > 0) || !(shares > 0) || r <= gT) return null;
+  let pv = 0, cf = fcf; const rows = [];
+  for (let y = 1; y <= 10; y++) {
+    const g = y <= 5 ? g1 : g1 - (g1 - gT) * (y - 5) / 5;
+    cf *= 1 + g; const disc = cf / Math.pow(1 + r, y); pv += disc; rows.push({ y, g, cf, disc });
+  }
+  const tv = cf * (1 + gT) / (r - gT), pvTv = tv / Math.pow(1 + r, 10);
+  const equity = pv + pvTv + (netCash || 0);
+  return { perShare: equity / shares, pv, pvTv, equity, rows };
+}
+function grahamNumber(f) { return f.eps > 0 && f.bvps > 0 ? Math.sqrt(22.5 * f.eps * f.bvps) : null; }
+function grahamGrowth(f) { if (!(f.eps > 0)) return null; const g = clamp(isNum(f.epsG5) ? f.epsG5 : (f.revG5 || 5), 0, 20); return f.eps * (8.5 + 2 * g); }
+function defaultDcf(f, fin) {
+  const last = f.last;
+  let fcf = last && isNum(last.fcf) && last.fcf > 0 ? last.fcf : (f.fcfPS && f.sharesM ? f.fcfPS * f.sharesM * 1e6 : null);
+  const g = clamp(avg([f.revG5, f.epsG5].map(x => isNum(x) ? x : null)) ?? 6, 2, 15) / 100;
+  const netCash = last && (isNum(last.cash) || isNum(last.debt)) ? (last.cash || 0) - (last.debt || 0) : 0;
+  return { fcf, g1: +g.toFixed(3), gT: 0.025, r: 0.09, netCash, shares: f.sharesM ? f.sharesM * 1e6 : null };
+}
+function valuations(f) {
+  const d = dcfModel(defaultDcf(f));
+  const list = [
+    { name: 'Discounted cash flow', v: d && d.perShare },
+    { name: 'Graham number', v: grahamNumber(f) },
+    { name: 'Earnings growth formula', v: grahamGrowth(f) },
+  ].filter(x => isNum(x.v) && x.v > 0);
+  const blend = list.length ? median(list.map(x => x.v)) : null;
+  return { list, blend };
+}
+function verdict(fair, price) {
+  if (!isNum(fair) || !isNum(price)) return { label: 'Not enough data', tone: '' , gap: null };
+  const gap = (fair - price) / price * 100;
+  if (gap > 15) return { label: 'Looks undervalued', tone: 'good', gap };
+  if (gap < -15) return { label: 'Looks overvalued', tone: 'bad', gap };
+  return { label: 'Near fair value', tone: 'acc', gap };
+}
+
+function harzScore(f) {
+  const lin = (v, bad, good) => isNum(v) ? clamp((v - bad) / (good - bad)) : null;
+  const pos52 = isNum(f.price) && isNum(f.hi52) && isNum(f.lo52) && f.hi52 > f.lo52 ? (f.price - f.lo52) / (f.hi52 - f.lo52) : null;
+  const P = [
+    { key: 'Value', parts: [f.pe > 0 ? lin(f.pe, 45, 10) : (isNum(f.pe) ? 0 : null), f.pfcf > 0 ? lin(f.pfcf, 45, 10) : null, f.pb > 0 ? lin(f.pb, 15, 1.5) : null], why: `P/E ${fmt.x(f.pe)}, price/FCF ${fmt.x(f.pfcf)}, P/B ${fmt.x(f.pb)}` },
+    { key: 'Quality', parts: [lin(f.roe, 0, 30), lin(f.netM, 0, 25), lin(f.grossM, 15, 60)], why: `ROE ${fmt.pct(f.roe, 1)}, net margin ${fmt.pct(f.netM, 1)}, gross margin ${fmt.pct(f.grossM, 1)}` },
+    { key: 'Growth', parts: [lin(f.revG5, -5, 20), lin(f.epsG5, -5, 25), lin(f.revG, -5, 20)], why: `Revenue 5y ${fmt.pct(f.revG5, 1)}/yr, EPS 5y ${fmt.pct(f.epsG5, 1)}/yr, revenue last year ${fmt.pct(f.revG, 1)}` },
+    { key: 'Health', parts: [isNum(f.de) ? lin(f.de, 3, 0) : null, lin(f.curRatio, 0.6, 2), lin(f.intCov, 1, 15)], why: `Debt/equity ${fmt.n(f.de)}, current ratio ${fmt.n(f.curRatio)}, interest cover ${fmt.x(f.intCov)}` },
+    { key: 'Momentum', parts: [lin(f.ret52, -30, 40), pos52], why: `1-year return ${fmt.pct(f.ret52, 1, true)}, ${isNum(pos52) ? Math.round(pos52 * 100) + '% of the way from 52-week low to high' : '52-week range n/a'}` },
+  ].map(p => { const a = avg(p.parts); return { ...p, score: a == null ? null : Math.round(a * 20) }; });
+  const have = P.filter(p => p.score != null);
+  const total = have.length ? Math.round(have.reduce((s, p) => s + p.score, 0) / (have.length * 20) * 100) : null;
+  const grade = total == null ? '–' : total >= 80 ? 'A' : total >= 65 ? 'B' : total >= 50 ? 'C' : total >= 35 ? 'D' : 'E';
+  return { pillars: P, total, grade };
+}
+
+function buildInsights(f, extras = {}) {
+  const out = [];
+  const add = (tone, text) => out.push({ tone, text });
+  if (f.pe > 0) { if (f.pe < 15) add('good', `Priced at ${fmt.x(f.pe)} earnings, which is cheap compared with the long-run market average of about 16 to 20×.`); else if (f.pe > 35) add('warn', `Priced at ${fmt.x(f.pe)} earnings. Investors expect strong growth, so disappointments can hit the price hard.`); else add('info', `Priced at ${fmt.x(f.pe)} earnings, in the normal range for a large US company.`); }
+  else if (isNum(f.pe) && f.pe <= 0) add('bad', 'The company is losing money over the last 12 months, so P/E is not meaningful.');
+  if (isNum(f.netM)) { if (f.netM >= 20) add('good', `Keeps ${fmt.pct(f.netM, 1)} of revenue as profit, a sign of strong pricing power.`); else if (f.netM < 5) add('warn', `Thin profit margin of ${fmt.pct(f.netM, 1)}. Small cost increases can wipe out earnings.`); }
+  if (isNum(f.roe) && f.roe >= 20) add('good', `Return on equity of ${fmt.pct(f.roe, 1)} shows management earns a lot on shareholders' money.`);
+  if (isNum(f.revG5)) { if (f.revG5 >= 10) add('good', `Revenue has grown about ${fmt.pct(f.revG5, 1)} a year over five years.`); else if (f.revG5 < 0) add('bad', `Revenue has shrunk about ${fmt.pct(Math.abs(f.revG5), 1)} a year over five years.`); }
+  if (isNum(f.revG) && isNum(f.revG5) && f.revG < f.revG5 - 8) add('warn', `Growth is slowing: revenue grew ${fmt.pct(f.revG, 1)} in the last year versus ${fmt.pct(f.revG5, 1)} a year over five years.`);
+  if (isNum(f.de)) { if (f.de > 2) add('warn', `Debt is ${fmt.n(f.de)}× equity, which is high. Check it can be refinanced comfortably.`); else if (f.de < 0.3) add('good', `Very little debt (${fmt.n(f.de)}× equity), which gives the business room in a downturn.`); }
+  if (isNum(f.curRatio) && f.curRatio < 1) add('warn', `Current ratio is ${fmt.n(f.curRatio)}, so short-term bills exceed short-term assets. Normal for some large firms, risky for small ones.`);
+  if (isNum(f.price) && isNum(f.hi52) && f.price >= f.hi52 * 0.95) add('info', 'Trading within 5% of its 52-week high.');
+  if (isNum(f.price) && isNum(f.lo52) && f.price <= f.lo52 * 1.08) add('warn', 'Trading near its 52-week low. Find out why before buying the dip.');
+  if (isNum(f.divYield) && f.divYield > 0) { if (f.divYield >= 3) add('good', `Pays a ${fmt.pct(f.divYield)} dividend yield, good for income.`); if (isNum(f.payout) && f.payout > 80) add('warn', `Pays out ${fmt.pct(f.payout, 0)} of earnings as dividends, leaving little room to raise them.`); }
+  if (isNum(f.beta) && f.beta > 1.4) add('warn', `Beta of ${fmt.n(f.beta)} means the stock tends to swing more than the market.`);
+  if (extras.earnings && extras.earnings.length) { const e = extras.earnings.slice(0, 4); const beats = e.filter(x => isNum(x.actual) && isNum(x.estimate) && x.actual >= x.estimate).length; add(beats >= 3 ? 'good' : beats <= 1 ? 'warn' : 'info', `Beat analyst earnings estimates in ${beats} of the last ${e.length} quarters.`); }
+  if (extras.recs && extras.recs[0]) { const r = extras.recs[0]; const tot = r.strongBuy + r.buy + r.hold + r.sell + r.strongSell; if (tot) { const b = (r.strongBuy + r.buy) / tot * 100; add(b >= 60 ? 'good' : b < 35 ? 'warn' : 'info', `${Math.round(b)}% of ${tot} analysts rate it a buy.`); } }
+  if (extras.val) { const v = verdict(extras.val.blend, f.price); if (v.gap != null) add(v.tone === 'good' ? 'good' : v.tone === 'bad' ? 'warn' : 'info', `Our middle fair value estimate is ${fmt.money(extras.val.blend)}, ${Math.abs(v.gap).toFixed(0)}% ${v.gap >= 0 ? 'above' : 'below'} the current price.`); }
+  return out;
+}
+
+/* ============ charts ============ */
+const charts = [];
+function clearCharts() { charts.splice(0).forEach(c => { try { c.destroy(); } catch {} }); }
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function mkChart(canvas, cfg) {
+  if (!window.Chart || !canvas) return null;
+  Chart.defaults.font.family = cssv('--f-body') || 'Inter, sans-serif';
+  Chart.defaults.color = cssv('--muted');
+  Chart.defaults.borderColor = cssv('--line');
+  const c = new Chart(canvas, cfg); charts.push(c); return c;
+}
+const sma = (arr, n) => arr.map((_, i) => i < n - 1 ? null : arr.slice(i - n + 1, i + 1).reduce((s, x) => s + x, 0) / n);
+function hexA(hex, a) { const h = hex.replace('#', ''); if (h.length !== 6) return hex; const n = parseInt(h, 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
+function drawPriceChart(canvas, rows, range, { showSma = true, compact = false } = {}) {
+  let disp = rows;
+  if (range === '1D' && rows.length) { const lastDay = rows[rows.length - 1].t.slice(0, 10); disp = rows.filter(r => r.t.startsWith(lastDay)); }
+  const closes = rows.map(r => r.c);
+  const s50 = sma(closes, 50), s200 = sma(closes, 200);
+  const show = RANGES[range].show || disp.length;
+  const start = range === '1D' ? 0 : Math.max(0, rows.length - show);
+  if (range !== '1D') disp = rows.slice(start);
+  const up = disp.length > 1 && disp[disp.length - 1].c >= disp[0].c;
+  const col = up ? cssv('--up') : cssv('--down');
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight || 300);
+  grad.addColorStop(0, hexA(col, .22)); grad.addColorStop(1, hexA(col, 0));
+  const labels = disp.map(r => range === '1D' ? r.t.slice(11, 16) : r.t.slice(0, 10));
+  const ds = [{ label: 'Price', data: disp.map(r => r.c), borderColor: col, backgroundColor: grad, fill: true, borderWidth: 2, pointRadius: 0, tension: .15, yAxisID: 'y' }];
+  if (showSma && !compact && ['6M', '1Y', '5Y'].includes(range)) {
+    ds.push({ label: '50-period average', data: s50.slice(start), borderColor: cssv('--gold'), borderWidth: 1.4, pointRadius: 0, fill: false, yAxisID: 'y' });
+    ds.push({ label: '200-period average', data: s200.slice(start), borderColor: cssv('--accent'), borderWidth: 1.4, pointRadius: 0, fill: false, borderDash: [5, 4], yAxisID: 'y' });
+  }
+  if (!compact) ds.push({ type: 'bar', label: 'Volume', data: disp.map(r => r.v), backgroundColor: hexA(cssv('--muted') || '#888888', .25), yAxisID: 'v', barPercentage: 1, categoryPercentage: 1 });
+  const maxV = Math.max(...disp.map(r => r.v || 0), 1);
+  return mkChart(canvas, {
+    type: 'line', data: { labels, datasets: ds },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: !compact && ds.length > 2, labels: { boxWidth: 12, usePointStyle: true, filter: i => i.text !== 'Volume' } },
+        tooltip: { callbacks: { label: c => c.dataset.label === 'Volume' ? 'Volume ' + fmt.vol(c.parsed.y) : `${c.dataset.label} ${fmt.money(c.parsed.y)}` } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: compact ? 3 : 7, maxRotation: 0, autoSkipPadding: 16 } },
+        y: { position: 'right', grid: { color: hexA(cssv('--line') || '#cccccc', .7) }, ticks: { callback: v => '$' + Number(v).toLocaleString() } },
+        ...(compact ? {} : { v: { display: false, max: maxV * 4, beginAtZero: true } }),
+      },
+    },
+  });
+}
+
+/* ============ rendering helpers ============ */
+let renderId = 0;
+const app = $('#app');
+const skel = (h = 120) => `<div class="skel" style="height:${h}px"></div>`;
+function errBox(e) {
+  if (e && e.code === 'nokey') return `<div class="setup"><b>Connect your free market data key</b><span>StockHarz uses Finnhub's free plan for prices and company data. It takes about a minute to get a key.</span><div class="row"><a class="btn primary" href="#settings">Add key in Settings</a><a class="btn" href="https://finnhub.io/register" target="_blank" rel="noopener">Get a free Finnhub key</a></div></div>`;
+  if (e && e.code === 'nokey-td') return `<div class="setup"><b>Add a free Twelve Data key for charts</b><span>${esc(e.message)}</span><div class="row"><a class="btn primary" href="#settings">Add key in Settings</a><a class="btn" href="https://twelvedata.com/register" target="_blank" rel="noopener">Get a free Twelve Data key</a></div></div>`;
+  return `<div class="note warn">${esc((e && e.message) || 'Something went wrong loading this section.')}</div>`;
+}
+async function load(el, fn, h) {
+  if (!el) return; el.innerHTML = skel(h);
+  try { await fn(el); } catch (e) { console.warn(e); if (el.isConnected) el.innerHTML = errBox(e); }
+}
+const tip = t => `<span class="tip" title="${esc(t)}" aria-label="${esc(t)}">?</span>`;
+const stat = (k, v, t) => `<div class="stat"><div class="k">${k}${t ? tip(t) : ''}</div><div class="v">${v}</div></div>`;
+const chg = (d, dp) => `<span class="chg ${cls(d)}">${isNum(d) ? (d > 0 ? '+' : '') + fmt.n(d) : '–'} (${fmt.pct(dp, 2, true)})</span>`;
+function rangeBar(lo, hi, v) {
+  if (!isNum(lo) || !isNum(hi) || !isNum(v) || hi <= lo) return '<div class="muted small">Range not available</div>';
+  const p = clamp((v - lo) / (hi - lo)) * 100;
+  return `<div class="range"><i style="left:${p}%"></i></div><div class="row small muted"><span class="num">${fmt.money(lo)}</span><span class="spacer"></span><span class="num">${fmt.money(hi)}</span></div>`;
+}
+function logoHtml(p, sym) {
+  return `<div class="logo">${p && p.logo && /^https:\/\//.test(p.logo) ? `<img src="${esc(p.logo)}" alt="" onerror="this.remove()">` : ''}${p && p.logo ? '' : esc(sym.slice(0, 2))}</div>`;
+}
+function newsList(items, n = 10) {
+  const list = (items || []).filter(i => i && i.headline).slice(0, n);
+  if (!list.length) return '<div class="empty">No recent news.</div>';
+  return `<div class="news">${list.map(i => `<a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener noreferrer"><div><div class="h">${esc(i.headline)}</div>${i.summary ? `<div class="s">${esc(i.summary)}</div>` : ''}<div class="small muted">${esc(i.source)} · ${isNum(i.datetime) ? fmt.ago(i.datetime) : ''}</div></div>${i.image && /^https:\/\//.test(i.image) ? `<img src="${esc(i.image)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</a>`).join('')}</div>`;
+}
+function scoreRing(total, grade) {
+  const r = 54, c = 2 * Math.PI * r, p = isNum(total) ? total / 100 : 0;
+  const col = !isNum(total) ? 'var(--muted)' : total >= 65 ? 'var(--up)' : total >= 45 ? 'var(--gold)' : 'var(--down)';
+  return `<svg class="score-ring" viewBox="0 0 132 132" role="img" aria-label="Harz Score ${isNum(total) ? total : 'not available'} out of 100"><circle cx="66" cy="66" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="12"/><circle cx="66" cy="66" r="${r}" fill="none" stroke="${col}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${c * p} ${c}" transform="rotate(-90 66 66)"/><text x="66" y="66" text-anchor="middle" font-family="var(--f-mono)" font-size="30" font-weight="500" fill="var(--fg)">${isNum(total) ? total : '–'}</text><text x="66" y="90" text-anchor="middle" font-size="12" fill="var(--muted)">Grade ${grade}</text></svg>`;
+}
+function setNav(p) { $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.p === p)); }
+function addRecent(s) { state.recent = [s, ...state.recent.filter(x => x !== s)].slice(0, 8); save('recent'); }
+function inWatch(s) { return state.watchlist.includes(s); }
+function toggleWatch(s) {
+  if (inWatch(s)) { state.watchlist = state.watchlist.filter(x => x !== s); toast(`Removed ${s} from your watchlist`); }
+  else { state.watchlist.push(s); toast(`Added ${s} to your watchlist`); }
+  save('watchlist');
+}
+
+/* ============ router ============ */
+function route() {
+  clearCharts(); renderId++;
+  const raw = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
+  const [page, a, b] = raw.split('/');
+  window.scrollTo(0, 0);
+  try {
+    if (page === 'stock' && a && SYM_RE.test(a.toUpperCase())) return pageStock(a.toUpperCase(), b || 'overview');
+    if (page === 'watchlist') return pageWatchlist();
+    if (page === 'portfolio') return pagePortfolio();
+    if (page === 'alerts') return pageAlerts(a);
+    if (page === 'compare') return pageCompare(a);
+    if (page === 'settings') return pageSettings();
+    if (page === 'glossary') return pageGlossary();
+    return pageHome();
+  } catch (e) { console.error(e); app.innerHTML = errBox(e); }
+}
+window.addEventListener('hashchange', route);
+
+/* ============ HOME ============ */
+function pageHome() {
+  setNav('home');
+  const noKey = !state.keys.finnhub;
+  app.innerHTML = `
+  ${noKey ? `<section class="card setup"><h2>Welcome to StockHarz</h2><span>Research any US stock, keep a watchlist, set price alerts and track your portfolio, all free. To load live data, add a free Finnhub key (and optionally a free Twelve Data key for charts) in Settings. Everything you save stays in this browser.</span><div class="row"><a class="btn primary" href="#settings">Set up in 1 minute</a><a class="btn" href="#stock/AAPL/chart">See an AAPL chart now</a></div></section>` : ''}
+  <section><div class="card-h"><h1>Market today</h1><span class="small muted">Index funds as a market gauge</span></div>
+    <div class="grid g4" id="mkt">${skel(80)}</div></section>
+  <div class="split">
+    <section class="card"><div class="card-h"><h2>Your watchlist</h2><a class="btn sm" href="#watchlist">Open watchlist</a></div><div id="hw"></div></section>
+    <section class="card"><div class="card-h"><h2>Portfolio</h2><a class="btn sm" href="#portfolio">Open</a></div><div id="hp"></div></section>
+  </div>
+  <div class="split">
+    <section class="card"><div class="card-h"><h2>Market news</h2></div><div id="hn"></div></section>
+    <section class="card"><div class="card-h"><h2>Upcoming earnings</h2><span class="small muted">From your watchlist</span></div><div id="he"></div></section>
+  </div>`;
+  const IDX = [['SPY', 'S&P 500'], ['QQQ', 'Nasdaq 100'], ['DIA', 'Dow Jones'], ['IWM', 'Russell 2000']];
+  load($('#mkt'), async el => {
+    const qs = await Promise.all(IDX.map(([s]) => D.quote(s)));
+    el.innerHTML = IDX.map(([s, n], i) => `<a class="card kpi" href="#stock/${s}/overview" style="color:inherit;text-decoration:none"><span class="eyebrow">${n} · ${s}</span><span class="v">${fmt.money(qs[i].c)}</span>${chg(qs[i].d, qs[i].dp)}</a>`).join('');
+  }, 80);
+  load($('#hw'), async el => { el.innerHTML = await watchTable(state.watchlist.slice(0, 8), true); bindRows(el); });
+  load($('#hp'), async el => {
+    if (!state.portfolio.length) { el.innerHTML = `<div class="empty">No holdings yet.<a class="btn sm" href="#portfolio">Add a holding</a></div>`; return; }
+    const t = await portfolioTotals();
+    el.innerHTML = `<div class="grid" style="gap:12px"><div class="kpi"><span class="eyebrow">Total value</span><span class="v">${fmt.money(t.value)}</span></div><div class="row"><div class="kpi"><span class="eyebrow">Today</span><span class="chg ${cls(t.day)}">${fmt.money(t.day)}</span></div><span class="spacer"></span><div class="kpi"><span class="eyebrow">All-time gain</span><span class="chg ${cls(t.gain)}">${fmt.money(t.gain)} (${fmt.pct(t.gainPct, 1, true)})</span></div></div></div>`;
+  });
+  load($('#hn'), async el => { el.innerHTML = newsList(await D.marketNews(), 8); });
+  load($('#he'), async el => {
+    const syms = state.watchlist.slice(0, 10);
+    const cals = await Promise.all(syms.map(s => D.calendar(s).catch(() => null)));
+    const rows = cals.flatMap(c => (c && c.earningsCalendar) || []).filter(x => x.date >= isoDay(0)).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8);
+    el.innerHTML = rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th>Date</th><th class="r">EPS estimate</th></tr></thead><tbody>${rows.map(r => `<tr class="click" data-s="${esc(r.symbol)}"><td class="sym">${esc(r.symbol)}</td><td>${fmt.date(r.date + 'T12:00:00')}${r.hour === 'bmo' ? ' <span class="pill">Before open</span>' : r.hour === 'amc' ? ' <span class="pill">After close</span>' : ''}</td><td class="r num">${fmt.money(r.epsEstimate)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No earnings dates in the next four months for your watchlist.</div>';
+    bindRows(el);
+  });
+}
+function bindRows(el) { $$('tr[data-s]', el).forEach(tr => tr.addEventListener('click', e => { if (e.target.closest('button,a')) return; location.hash = `stock/${tr.dataset.s}/overview`; })); }
+
+/* ============ WATCHLIST ============ */
+async function watchTable(syms, compact) {
+  if (!syms.length) return `<div class="empty">Your watchlist is empty. Search for a stock above and add it.</div>`;
+  const data = await Promise.all(syms.map(async s => { const [q, p, m] = await Promise.all([D.quote(s), D.profile(s).catch(() => null), compact ? null : D.metrics(s).catch(() => null)]); return { s, q, p, f: m ? fundamentals(q, p, m) : null }; }));
+  return `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th class="r">Price</th><th class="r">Change</th>${compact ? '' : '<th class="r hide-sm">Day range</th><th class="hide-sm" style="min-width:140px">52-week position</th><th class="r hide-sm">P/E</th><th class="r hide-sm">Yield</th><th></th>'}</tr></thead><tbody>${data.map(({ s, q, p, f }) => `
+    <tr class="click" data-s="${esc(s)}"><td><span class="sym">${esc(s)}</span><div class="small muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(p && p.name || '')}</div></td>
+    <td class="r num">${fmt.money(q.c)}</td><td class="r">${chg(q.d, q.dp)}</td>
+    ${compact ? '' : `<td class="r num hide-sm">${fmt.n(q.l)} – ${fmt.n(q.h)}</td><td class="hide-sm">${f ? rangeBar(f.lo52, f.hi52, q.c).split('<div class="row')[0] : '–'}</td><td class="r num hide-sm">${fmt.x(f && f.pe)}</td><td class="r num hide-sm">${fmt.pct(f && f.divYield)}</td>
+    <td class="r"><a class="btn sm ghost" href="#alerts/${esc(s)}" title="Set a price alert">Alert</a><button class="btn sm ghost danger" data-rm="${esc(s)}" title="Remove from watchlist">Remove</button></td>`}</tr>`).join('')}</tbody></table></div>`;
+}
+let watchTimer = null;
+function pageWatchlist() {
+  setNav('watchlist');
+  app.innerHTML = `<section class="card"><div class="card-h"><div><h1>Watchlist</h1><div class="small muted">Prices refresh every minute while this page is open.</div></div>
+    <form id="wa" class="row"><input class="in" id="wsym" placeholder="Add symbol, e.g. TSLA" aria-label="Symbol to add" style="width:180px"><button class="btn primary">Add</button></form></div><div id="wt"></div></section>`;
+  const id = renderId;
+  const refresh = () => load($('#wt'), async el => { const html = await watchTable(state.watchlist, false); if (id !== renderId) return; el.innerHTML = html; bindRows(el);
+    $$('[data-rm]', el).forEach(b => b.addEventListener('click', () => { toggleWatch(b.dataset.rm); refresh(); })); });
+  refresh();
+  clearInterval(watchTimer);
+  watchTimer = setInterval(() => { if (id !== renderId) return clearInterval(watchTimer); mem.forEach((v, k) => { if (k.startsWith('fh/quote')) mem.delete(k); }); watchTable(state.watchlist, false).then(html => { if (id === renderId) { const el = $('#wt'); el.innerHTML = html; bindRows(el); $$('[data-rm]', el).forEach(b => b.addEventListener('click', () => { toggleWatch(b.dataset.rm); refresh(); })); } }).catch(() => {}); }, 60e3);
+  $('#wa').addEventListener('submit', e => { e.preventDefault(); const s = $('#wsym').value.trim().toUpperCase(); if (!SYM_RE.test(s)) return toast('Enter a ticker symbol like TSLA'); if (!inWatch(s)) toggleWatch(s); $('#wsym').value = ''; refresh(); });
+}
+
+/* ============ PORTFOLIO ============ */
+async function portfolioTotals() {
+  const syms = [...new Set(state.portfolio.map(h => h.symbol))];
+  const qs = Object.fromEntries(await Promise.all(syms.map(async s => [s, await D.quote(s)])));
+  let value = 0, cost = 0, day = 0;
+  const rows = state.portfolio.map(h => { const q = qs[h.symbol] || {}; const v = h.shares * (q.c || 0), c = h.shares * h.cost; value += v; cost += c; day += h.shares * (q.d || 0); return { ...h, q, value: v, costTotal: c, gain: v - c, gainPct: c ? (v - c) / c * 100 : null }; });
+  return { rows, value, cost, day, gain: value - cost, gainPct: cost ? (value - cost) / cost * 100 : null };
+}
+function pagePortfolio() {
+  setNav('portfolio');
+  app.innerHTML = `<section class="card"><div class="card-h"><div><h1>Portfolio</h1><div class="small muted">Track what you own. Saved only in this browser.</div></div></div>
+    <form id="pf" class="formgrid">
+      <label class="f">Symbol<input class="in" id="pf-s" required placeholder="AAPL"></label>
+      <label class="f">Shares<input class="in" id="pf-n" type="number" step="any" min="0" required placeholder="10"></label>
+      <label class="f">Average cost per share ($)<input class="in" id="pf-c" type="number" step="any" min="0" required placeholder="150.00"></label>
+      <label class="f">Date bought (optional)<input class="in" id="pf-d" type="date"></label>
+      <button class="btn primary">Add holding</button>
+    </form></section>
+    <div id="pv"></div>`;
+  $('#pf').addEventListener('submit', e => {
+    e.preventDefault();
+    const s = $('#pf-s').value.trim().toUpperCase(), n = +$('#pf-n').value, c = +$('#pf-c').value;
+    if (!SYM_RE.test(s) || !(n > 0) || !(c >= 0)) return toast('Check the symbol, shares and cost.');
+    state.portfolio.push({ id: uid(), symbol: s, shares: n, cost: c, date: $('#pf-d').value || null }); save('portfolio');
+    e.target.reset(); toast(`Added ${n} ${s}`); renderPortfolio();
+  });
+  renderPortfolio();
+}
+function renderPortfolio() {
+  const el = $('#pv');
+  if (!state.portfolio.length) { el.innerHTML = `<section class="card empty">No holdings yet. Add your first one above.</section>`; return; }
+  load(el, async el => {
+    const t = await portfolioTotals();
+    const divs = await Promise.all(t.rows.map(r => D.metrics(r.symbol).then(m => fundamentals(r.q, null, m).dps).catch(() => null)));
+    const income = t.rows.reduce((s, r, i) => s + (isNum(divs[i]) ? divs[i] * r.shares : 0), 0);
+    el.innerHTML = `<div class="grid g4">
+      <div class="card kpi"><span class="eyebrow">Total value</span><span class="v">${fmt.money(t.value)}</span></div>
+      <div class="card kpi"><span class="eyebrow">Today</span><span class="v ${cls(t.day)}">${fmt.money(t.day)}</span></div>
+      <div class="card kpi"><span class="eyebrow">Total gain</span><span class="v ${cls(t.gain)}">${fmt.money(t.gain)}</span><span class="small ${cls(t.gain)}">${fmt.pct(t.gainPct, 2, true)} on ${fmt.money(t.cost)} invested</span></div>
+      <div class="card kpi"><span class="eyebrow">Yearly dividends (est.)</span><span class="v">${fmt.money(income)}</span><span class="small muted">${fmt.pct(t.value ? income / t.value * 100 : null)} yield on value</span></div></div>
+    <div class="split">
+      <section class="card"><h2>Holdings</h2><div class="tbl-wrap"><table><thead><tr><th>Stock</th><th class="r">Shares</th><th class="r">Avg cost</th><th class="r">Price</th><th class="r">Value</th><th class="r">Gain</th><th class="r hide-sm">Weight</th><th></th></tr></thead><tbody>
+      ${t.rows.map(r => `<tr class="click" data-s="${esc(r.symbol)}"><td class="sym">${esc(r.symbol)}</td><td class="r num">${fmt.n(r.shares, r.shares % 1 ? 3 : 0)}</td><td class="r num">${fmt.money(r.cost)}</td><td class="r num">${fmt.money(r.q.c)}</td><td class="r num">${fmt.money(r.value)}</td><td class="r num ${cls(r.gain)}">${fmt.money(r.gain)}<div class="small">${fmt.pct(r.gainPct, 1, true)}</div></td><td class="r num hide-sm">${fmt.pct(t.value ? r.value / t.value * 100 : null, 1)}</td><td class="r"><button class="btn sm ghost danger" data-del="${esc(r.id)}">Remove</button></td></tr>`).join('')}
+      </tbody></table></div></section>
+      <section class="card"><h2>Allocation</h2><div class="chart-box sm"><canvas id="alloc"></canvas></div></section></div>`;
+    bindRows(el);
+    $$('[data-del]', el).forEach(b => b.addEventListener('click', () => { state.portfolio = state.portfolio.filter(h => h.id !== b.dataset.del); save('portfolio'); renderPortfolio(); }));
+    const by = {}; t.rows.forEach(r => by[r.symbol] = (by[r.symbol] || 0) + r.value);
+    const palette = [cssv('--accent'), cssv('--gold'), cssv('--up'), cssv('--down'), cssv('--warn'), cssv('--muted'), cssv('--fg')];
+    mkChart($('#alloc'), { type: 'doughnut', data: { labels: Object.keys(by), datasets: [{ data: Object.values(by), backgroundColor: Object.keys(by).map((_, i) => palette[i % palette.length]), borderColor: cssv('--surface'), borderWidth: 2 }] }, options: { maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'right', labels: { boxWidth: 10 } }, tooltip: { callbacks: { label: c => `${c.label} ${fmt.money(c.parsed)}` } } } } });
+  });
+}
+
+/* ============ ALERTS ============ */
+const ALERT_TYPES = { above: 'Price rises above', below: 'Price falls below', up: 'Rises today by at least (%)', down: 'Falls today by at least (%)' };
+function pageAlerts(prefill) {
+  setNav('alerts');
+  const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  app.innerHTML = `<section class="card"><div class="card-h"><div><h1>Price alerts</h1><div class="small muted">Checked every minute while StockHarz is open in a tab.</div></div>
+    ${perm === 'default' ? '<button class="btn" id="notif">Turn on desktop notifications</button>' : perm === 'granted' ? '<span class="pill good">Desktop notifications on</span>' : '<span class="pill">Alerts show inside the app</span>'}</div>
+    <form id="af" class="formgrid">
+      <label class="f">Symbol<input class="in" id="af-s" required value="${esc(prefill && SYM_RE.test(prefill.toUpperCase()) ? prefill.toUpperCase() : '')}" placeholder="AAPL"></label>
+      <label class="f">Condition<select class="in" id="af-t">${Object.entries(ALERT_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+      <label class="f">Value<input class="in" id="af-v" type="number" step="any" required placeholder="200"></label>
+      <button class="btn primary">Create alert</button>
+    </form><p class="small muted" style="margin:10px 0 0">Alerts can't fire while every StockHarz tab is closed. Sending phone or email alerts in the background needs a small server, which isn't part of this free setup.</p></section>
+    <section class="card"><h2>Your alerts</h2><div id="al"></div></section>`;
+  if ($('#notif')) $('#notif').addEventListener('click', async () => { try { await Notification.requestPermission(); } catch {} pageAlerts(); });
+  $('#af').addEventListener('submit', e => {
+    e.preventDefault();
+    const s = $('#af-s').value.trim().toUpperCase(), t = $('#af-t').value, v = +$('#af-v').value;
+    if (!SYM_RE.test(s) || !isNum(v)) return toast('Check the symbol and value.');
+    state.alerts.unshift({ id: uid(), symbol: s, type: t, value: v, active: true, created: Date.now() }); save('alerts');
+    toast(`Alert set for ${s}`); renderAlerts(); checkAlerts();
+  });
+  renderAlerts();
+}
+function alertText(a) { return a.type === 'above' ? `above ${fmt.money(a.value)}` : a.type === 'below' ? `below ${fmt.money(a.value)}` : a.type === 'up' ? `up ${a.value}% today` : `down ${a.value}% today`; }
+function renderAlerts() {
+  const el = $('#al'); if (!el) return;
+  if (!state.alerts.length) { el.innerHTML = '<div class="empty">No alerts yet.</div>'; return; }
+  el.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th>Alert when</th><th>Status</th><th></th></tr></thead><tbody>${state.alerts.map(a => `<tr><td class="sym"><a href="#stock/${esc(a.symbol)}/overview">${esc(a.symbol)}</a></td><td>${esc(alertText(a))}</td><td>${a.active ? '<span class="pill acc">Watching</span>' : `<span class="pill gold">Triggered ${a.hitAt ? new Date(a.hitAt).toLocaleString() : ''} at ${fmt.money(a.hitPrice)}</span>`}</td><td class="r">${a.active ? '' : `<button class="btn sm ghost" data-re="${a.id}">Re-arm</button>`}<button class="btn sm ghost danger" data-x="${a.id}">Delete</button></td></tr>`).join('')}</tbody></table></div>`;
+  $$('[data-x]', el).forEach(b => b.addEventListener('click', () => { state.alerts = state.alerts.filter(a => a.id !== b.dataset.x); save('alerts'); renderAlerts(); }));
+  $$('[data-re]', el).forEach(b => b.addEventListener('click', () => { const a = state.alerts.find(x => x.id === b.dataset.re); if (a) { a.active = true; delete a.hitAt; save('alerts'); renderAlerts(); } }));
+}
+async function checkAlerts() {
+  const act = state.alerts.filter(a => a.active); if (!act.length || !state.keys.finnhub) return;
+  for (const s of [...new Set(act.map(a => a.symbol))]) {
+    mem.delete('fh/quote?symbol=' + s);
+    let q; try { q = await D.quote(s); } catch { continue; }
+    for (const a of act.filter(x => x.symbol === s)) {
+      const hit = (a.type === 'above' && q.c >= a.value) || (a.type === 'below' && q.c <= a.value) || (a.type === 'up' && q.dp >= a.value) || (a.type === 'down' && q.dp <= -a.value);
+      if (hit && q.c > 0) {
+        a.active = false; a.hitAt = Date.now(); a.hitPrice = q.c;
+        const msg = `${s} is ${alertText(a)}: now ${fmt.money(q.c)} (${fmt.pct(q.dp, 2, true)})`;
+        toast('Alert: ' + msg, 10000);
+        try { if ('Notification' in window && Notification.permission === 'granted') new Notification('StockHarz alert', { body: msg }); } catch {}
+      }
+    }
+  }
+  save('alerts'); renderAlerts();
+}
+setInterval(checkAlerts, 60e3); setTimeout(checkAlerts, 4000);
+
+/* ============ STOCK PAGE ============ */
+const TABS = [['overview', 'Overview'], ['chart', 'Chart'], ['financials', 'Financials'], ['metrics', 'Key metrics'], ['valuation', 'Fair value'], ['dividends', 'Dividends'], ['score', 'Harz Score'], ['insights', 'Insights'], ['news', 'News'], ['earnings', 'Earnings']];
+async function stockBundle(s) {
+  const [q, p, m] = await Promise.all([D.quote(s), D.profile(s).catch(() => ({})), D.metrics(s).catch(() => ({}))]);
+  if (!q || (!q.c && !q.pc && !(p && p.name))) throw new ApiError('nf', `No data found for "${s}". Check the ticker symbol (US-listed stocks only on the free plan).`);
+  return { q, p: p || {}, m };
+}
+function pageStock(s, tab) {
+  setNav(''); addRecent(s);
+  if (!TABS.some(t => t[0] === tab)) tab = 'overview';
+  const id = renderId;
+  app.innerHTML = `<section id="sh">${skel(70)}</section>
+  <nav class="tabs" aria-label="Stock sections">${TABS.map(([k, n]) => `<a href="#stock/${s}/${k}" class="${k === tab ? 'on' : ''}">${n}</a>`).join('')}<a href="#compare/${s}">Compare</a></nav>
+  <div id="tab" class="grid"></div>`;
+  load($('#sh'), async el => {
+    const { q, p } = await stockBundle(s);
+    if (id !== renderId) return;
+    document.title = `${s} ${fmt.money(q.c)} · StockHarz`;
+    el.innerHTML = `<div class="sh">${logoHtml(p, s)}<div style="flex:1;min-width:220px"><div class="row" style="gap:8px"><h1>${esc(p.name || s)}</h1><span class="pill mono">${esc(s)}</span>${p.exchange ? `<span class="pill">${esc(p.exchange.replace(/ .*/, ''))}</span>` : ''}${p.finnhubIndustry ? `<span class="pill acc">${esc(p.finnhubIndustry)}</span>` : ''}</div>
+      <div class="row" style="margin-top:6px;gap:14px;align-items:baseline"><span class="price">${fmt.money(q.c)}</span>${chg(q.d, q.dp)}<span class="small muted">${p.currency && p.currency !== 'USD' ? esc(p.currency) + ' · ' : ''}${q.t ? 'as of ' + new Date(q.t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span></div></div>
+      <div class="row"><button class="btn" id="wbtn" aria-pressed="${inWatch(s)}">${inWatch(s) ? 'On watchlist' : 'Add to watchlist'}</button><a class="btn" href="#alerts/${s}">Set alert</a><a class="btn" href="#portfolio">Add to portfolio</a></div></div>`;
+    $('#wbtn').addEventListener('click', e => { toggleWatch(s); e.target.setAttribute('aria-pressed', inWatch(s)); e.target.textContent = inWatch(s) ? 'On watchlist' : 'Add to watchlist'; });
+  }, 70);
+  const el = $('#tab');
+  const T = { overview: tabOverview, chart: tabChart, financials: tabFinancials, metrics: tabMetrics, valuation: tabValuation, dividends: tabDividends, score: tabScore, insights: tabInsights, news: tabNews, earnings: tabEarnings };
+  T[tab](s, el, id);
+}
+
+function chartBlock(s, initial = '1Y', compact = false) {
+  return `<div class="card-h"><h2>${compact ? 'Price' : 'Price chart'}</h2><div class="seg" role="group" aria-label="Chart range">${Object.keys(RANGES).map(r => `<button type="button" data-r="${r}" class="${r === initial ? 'on' : ''}">${r}</button>`).join('')}</div></div><div class="chart-box ${compact ? 'sm' : ''}" id="pcbox"><canvas id="pc"></canvas></div><div id="pcperf" class="small muted" style="margin-top:8px"></div>`;
+}
+function wireChart(s, root, initial = '1Y', compact = false) {
+  let cur = null;
+  const draw = async r => {
+    $$('[data-r]', root).forEach(b => b.classList.toggle('on', b.dataset.r === r));
+    const box = $('#pcbox', root);
+    if (cur) { cur.destroy(); cur = null; }
+    box.innerHTML = '<canvas id="pc"></canvas>';
+    try {
+      const rows = await D.candles(s, r);
+      if (!box.isConnected) return;
+      if (!rows.length) { box.innerHTML = '<div class="empty">No price history.</div>'; return; }
+      cur = drawPriceChart($('#pc', root), rows, r, { compact });
+      const showRows = r === '1D' ? rows.filter(x => x.t.startsWith(rows[rows.length - 1].t.slice(0, 10))) : rows.slice(-(RANGES[r].show || rows.length));
+      const a = showRows[0].c, b = showRows[showRows.length - 1].c;
+      $('#pcperf', root).innerHTML = `${r} change: <span class="${cls(b - a)} num">${fmt.pct((b - a) / a * 100, 2, true)}</span> · from ${esc(showRows[0].t.slice(0, 10))}${!compact && ['6M', '1Y', '5Y'].includes(r) ? ' · Gold line is the 50-period average, dashed line the 200-period average.' : ''}`;
+    } catch (e) { if (box.isConnected) box.innerHTML = errBox(e); }
+  };
+  $$('[data-r]', root).forEach(b => b.addEventListener('click', () => draw(b.dataset.r)));
+  draw(initial);
+}
+
+function tabOverview(s, el, id) {
+  el.innerHTML = `<div class="split"><section class="card" id="ov-chart">${chartBlock(s, '1Y', true)}</section><section class="card" id="ov-score"></section></div>
+  <section class="card"><h2>Key statistics</h2><div id="ov-stats"></div></section>
+  <div class="split"><section class="card" id="ov-about"></section><section class="card" id="ov-recs"></section></div>
+  <section class="card"><div class="card-h"><h2>Similar companies</h2><a class="btn sm" href="#compare/${s}">Compare side by side</a></div><div id="ov-peers"></div></section>`;
+  wireChart(s, $('#ov-chart'), '1Y', true);
+  const bundle = stockBundle(s);
+  load($('#ov-stats'), async box => {
+    const { q, p, m } = await bundle; const f = fundamentals(q, p, m);
+    box.innerHTML = `<div class="stats">
+      ${stat('Market cap', fmt.big(f.mcap * 1e6), 'Share price × shares outstanding')}${stat('P/E (TTM)', fmt.x(f.pe), 'Price divided by the last 12 months of earnings per share')}
+      ${stat('EPS (TTM)', fmt.money(f.eps), 'Earnings per share over the last 12 months')}${stat('Dividend yield', fmt.pct(f.divYield), 'Yearly dividends as a % of the share price')}
+      ${stat('Beta', fmt.n(f.beta), 'How much the stock moves vs the market. 1 = same as market')}${stat('Avg volume (10d)', fmt.vol(f.vol10 * 1e6))}
+      ${stat('Open', fmt.money(q.o))}${stat('Previous close', fmt.money(q.pc))}
+      ${stat('Day range', `${fmt.n(q.l)} – ${fmt.n(q.h)}`)}${stat('1-year return', `<span class="${cls(f.ret52)}">${fmt.pct(f.ret52, 1, true)}</span>`)}
+      ${stat('Net margin', fmt.pct(f.netM, 1), 'Profit kept from each dollar of sales')}${stat('ROE', fmt.pct(f.roe, 1), 'Return on equity: profit relative to shareholder money')}
+      </div><div style="margin-top:14px"><div class="eyebrow">52-week range</div>${rangeBar(f.lo52, f.hi52, q.c)}</div>`;
+  });
+  load($('#ov-score'), async box => {
+    const { q, p, m } = await bundle; const fin = await D.financials(s).catch(() => null); const f = fundamentals(q, p, m, fin); const sc = harzScore(f);
+    const val = valuations(f); const v = verdict(val.blend, f.price);
+    box.innerHTML = `<div class="card-h"><h2>Harz Score</h2><a class="small" href="#stock/${s}/score">How it's scored</a></div><div class="row" style="gap:16px;flex-wrap:nowrap">${scoreRing(sc.total, sc.grade)}<div class="grid" style="gap:6px;flex:1;min-width:0">${sc.pillars.map(pl => `<div><div class="row small" style="gap:6px"><span>${pl.key}</span><span class="spacer"></span><span class="num muted">${pl.score ?? '–'}/20</span></div><div class="bar"><span style="width:${(pl.score || 0) * 5}%"></span></div></div>`).join('')}</div></div>
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><div class="eyebrow">Fair value estimate</div><div class="row" style="align-items:baseline"><span class="kpi"><span class="v">${fmt.money(val.blend)}</span></span><span class="pill ${v.tone}">${v.label}${v.gap != null ? ` · ${v.gap > 0 ? '+' : ''}${v.gap.toFixed(0)}%` : ''}</span></div><a class="small" href="#stock/${s}/valuation">Adjust the assumptions</a></div>`;
+  });
+  load($('#ov-about'), async box => {
+    const { p } = await bundle;
+    box.innerHTML = `<h2>About</h2><div class="stats">${stat('Industry', esc(p.finnhubIndustry || '–'))}${stat('Country', esc(p.country || '–'))}${stat('Exchange', esc(p.exchange || '–'))}${stat('Listed since', p.ipo ? fmt.date(p.ipo + 'T12:00:00') : '–')}${stat('Shares outstanding', isNum(p.shareOutstanding) ? fmt.vol(p.shareOutstanding * 1e6) : '–')}${stat('Website', p.weburl ? `<a href="${safeUrl(p.weburl)}" target="_blank" rel="noopener" style="font-family:var(--f-body);font-size:.85rem">${esc(String(p.weburl).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}</a>` : '–')}</div>`;
+  });
+  load($('#ov-recs'), async box => {
+    const r = (await D.recs(s))[0];
+    if (!r) { box.innerHTML = '<h2>Analyst ratings</h2><div class="empty">No analyst ratings.</div>'; return; }
+    const parts = [['Strong buy', r.strongBuy, 'var(--up)'], ['Buy', r.buy, 'color-mix(in srgb,var(--up) 55%,var(--surface))'], ['Hold', r.hold, 'var(--gold)'], ['Sell', r.sell, 'color-mix(in srgb,var(--down) 55%,var(--surface))'], ['Strong sell', r.strongSell, 'var(--down)']];
+    const tot = parts.reduce((a, x) => a + (x[1] || 0), 0) || 1;
+    const buyP = Math.round((r.strongBuy + r.buy) / tot * 100);
+    box.innerHTML = `<div class="card-h"><h2>Analyst ratings</h2><span class="small muted">${esc(r.period)}</span></div><div class="kpi"><span class="v">${buyP}% buy</span><span class="small muted">${tot} analysts</span></div><div class="stack" style="margin:12px 0">${parts.map(x => `<span style="width:${(x[1] || 0) / tot * 100}%;background:${x[2]}" title="${x[0]}: ${x[1]}"></span>`).join('')}</div><div class="grid g3" style="gap:4px 12px;grid-template-columns:repeat(auto-fill,minmax(110px,1fr))">${parts.map(x => `<div class="row small" style="gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:${x[2]}"></span>${x[0]}<span class="spacer"></span><b class="num">${x[1] || 0}</b></div>`).join('')}</div>`;
+  });
+  load($('#ov-peers'), async box => {
+    const peers = (await D.peers(s)).filter(x => x !== s && SYM_RE.test(x)).slice(0, 8);
+    if (!peers.length) { box.innerHTML = '<div class="muted">No peers listed.</div>'; return; }
+    const qs = await Promise.all(peers.map(x => D.quote(x).catch(() => null)));
+    box.innerHTML = `<div class="chips">${peers.map((x, i) => `<a class="chip" href="#stock/${esc(x)}/overview"><b>${esc(x)}</b>${qs[i] ? `<span class="num">${fmt.money(qs[i].c)}</span><span class="num small ${cls(qs[i].dp)}">${fmt.pct(qs[i].dp, 1, true)}</span>` : ''}</a>`).join('')}</div>`;
+  }, 40);
+}
+
+function tabChart(s, el) {
+  el.innerHTML = `<section class="card" id="ch">${chartBlock(s, '1Y', false)}</section><section class="card" id="perf"><h2>Performance</h2><div id="perfb"></div></section>`;
+  const root = $('#ch'); $('.chart-box', root).style.height = '420px';
+  wireChart(s, root, '1Y', false);
+  load($('#perfb'), async box => {
+    const rows = await D.candles(s, '5Y');
+    const last = rows[rows.length - 1].c;
+    const at = weeks => rows.length > weeks ? rows[rows.length - 1 - weeks].c : null;
+    const ytdRow = rows.find(r => r.t.slice(0, 4) === String(new Date().getFullYear()));
+    const P = [['1 month', at(4)], ['3 months', at(13)], ['6 months', at(26)], ['Year to date', ytdRow && ytdRow.c], ['1 year', at(52)], ['3 years', at(156)], ['5 years', rows[0] && rows[0].c]];
+    box.innerHTML = `<div class="stats">${P.map(([k, v]) => stat(k, isNum(v) ? `<span class="${cls(last - v)}">${fmt.pct((last - v) / v * 100, 1, true)}</span>` : '–')).join('')}</div><p class="small muted" style="margin:8px 0 0">Price change only, from weekly closes. Dividends not included.</p>`;
+  }, 80);
+}
+
+function tabFinancials(s, el) {
+  el.innerHTML = `<section class="card"><div class="card-h"><h2>Annual financials</h2><div class="seg" id="fseg"><button data-k="income" class="on">Income</button><button data-k="cash">Cash flow</button><button data-k="balance">Balance sheet</button></div></div><div class="chart-box sm"><canvas id="fc"></canvas></div><div id="ft" style="margin-top:14px"></div><p class="small muted" style="margin:10px 0 0">From the company's annual reports filed with the SEC (10-K). Values in US dollars.</p></section>`;
+  load($('#ft'), async box => {
+    const fin = await D.financials(s);
+    if (!fin.years.length) { box.innerHTML = '<div class="empty">No annual reports found. Financial statements are available for US companies that file with the SEC.</div>'; return; }
+    const Y = fin.years;
+    const sets = {
+      income: [['Revenue', 'revenue'], ['Gross profit', 'grossProfit'], ['Operating income', 'operatingIncome'], ['Net income', 'netIncome'], ['EPS (diluted)', 'eps', true]],
+      cash: [['Operating cash flow', 'cfo'], ['Capital spending', 'capex'], ['Free cash flow', 'fcf'], ['Dividends paid', 'dividendsPaid'], ['Share buybacks', 'buybacks']],
+      balance: [['Total assets', 'assets'], ['Total liabilities', 'liabilities'], ['Shareholder equity', 'equity'], ['Cash', 'cash'], ['Total debt', 'debt']],
+    };
+    let chart = null;
+    const show = k => {
+      $$('#fseg button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+      const rows = sets[k];
+      box.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Fiscal year</th>${Y.map(y => `<th class="r">${y.year}</th>`).join('')}</tr></thead><tbody>${rows.map(([n, key, perShare]) => `<tr><td>${n}</td>${Y.map((y, i) => { const v = y[key]; const prev = i ? Y[i - 1][key] : null; const g = isNum(v) && isNum(prev) && prev ? (v - prev) / Math.abs(prev) * 100 : null; return `<td class="r num">${perShare ? fmt.money(v) : fmt.big(v)}${g != null && !perShare ? `<div class="small ${cls(g)}">${fmt.pct(g, 0, true)}</div>` : ''}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>`;
+      if (chart) chart.destroy();
+      const pal = [cssv('--accent'), cssv('--gold'), cssv('--up')];
+      const keys = rows.filter(r => !r[2]).slice(0, k === 'cash' ? 3 : k === 'income' ? 4 : 3).filter((_, i) => k !== 'income' || i !== 1 && i !== 2 || i === 3);
+      const pick = k === 'income' ? [rows[0], rows[3]] : k === 'cash' ? [rows[0], rows[2]] : [rows[0], rows[2], rows[4]];
+      chart = mkChart($('#fc'), { type: 'bar', data: { labels: Y.map(y => y.year), datasets: pick.map((r, i) => ({ label: r[0], data: Y.map(y => y[r[1]]), backgroundColor: pal[i], borderRadius: 4 })) }, options: { maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { boxWidth: 10 } }, tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt.big(c.parsed.y)}` } } }, scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => fmt.big(v) } } } } });
+      void keys;
+    };
+    $$('#fseg button').forEach(b => b.addEventListener('click', () => show(b.dataset.k)));
+    show('income');
+  });
+}
+
+function tabMetrics(s, el) {
+  el.innerHTML = `<div id="mx" class="grid g2"></div>`;
+  load($('#mx'), async box => {
+    const { q, p, m } = await stockBundle(s); const f = fundamentals(q, p, m);
+    const G = [
+      ['Valuation', 'Lower usually means cheaper', [['P/E (TTM)', fmt.x(f.pe), 'Price / earnings per share'], ['Price / book', fmt.x(f.pb), 'Price / net assets per share'], ['Price / sales', fmt.x(f.ps), 'Market cap / yearly revenue'], ['Price / free cash flow', fmt.x(f.pfcf), 'Market cap / free cash flow'], ['EPS (TTM)', fmt.money(f.eps)], ['Book value / share', fmt.money(f.bvps)]]],
+      ['Profitability', 'Higher is better', [['Gross margin', fmt.pct(f.grossM, 1)], ['Operating margin', fmt.pct(f.opM, 1)], ['Net margin', fmt.pct(f.netM, 1)], ['Return on equity', fmt.pct(f.roe, 1)], ['Return on assets', fmt.pct(f.roa, 1)], ['Return on investment', fmt.pct(f.roi, 1)]]],
+      ['Growth', 'Yearly rates', [['Revenue, last year', fmt.pct(f.revG, 1, true)], ['Revenue, 3-year avg', fmt.pct(f.revG3, 1, true)], ['Revenue, 5-year avg', fmt.pct(f.revG5, 1, true)], ['EPS, last year', fmt.pct(f.epsG, 1, true)], ['EPS, 3-year avg', fmt.pct(f.epsG3, 1, true)], ['EPS, 5-year avg', fmt.pct(f.epsG5, 1, true)]]],
+      ['Financial health', 'Can it pay its bills?', [['Current ratio', fmt.n(f.curRatio), 'Short-term assets / short-term debts. Above 1 is comfortable'], ['Quick ratio', fmt.n(f.quick), 'Like current ratio but excludes inventory'], ['Debt / equity', fmt.n(f.de), 'Total debt / shareholder equity'], ['Interest coverage', fmt.x(f.intCov), 'Operating profit / interest expense'], ['Beta', fmt.n(f.beta)], ['1-year return', fmt.pct(f.ret52, 1, true)]]],
+    ];
+    box.innerHTML = G.map(([t, sub, items]) => `<section class="card"><div class="card-h"><h2>${t}</h2><span class="small muted">${sub}</span></div><div class="stats">${items.map(([k, v, tp]) => stat(k, v, tp)).join('')}</div></section>`).join('') + `<section class="card" style="grid-column:1/-1"><div class="card-h"><h2>Trends</h2><div class="seg" id="tseg"></div></div><div class="chart-box sm"><canvas id="tc"></canvas></div></section>`;
+    const ser = (m && m.series && m.series.annual) || {};
+    const opts = [['netMargin', 'Net margin'], ['grossMargin', 'Gross margin'], ['roe', 'ROE'], ['pe', 'P/E'], ['eps', 'EPS'], ['currentRatio', 'Current ratio'], ['totalDebtToEquity', 'Debt/equity']].filter(([k]) => Array.isArray(ser[k]) && ser[k].length > 1);
+    const tbox = $('#tc').parentElement.parentElement;
+    if (!opts.length) { tbox.remove(); return; }
+    let ch = null;
+    const show = k => {
+      $$('#tseg button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+      const arr = ser[k].slice(0, 12).slice().reverse();
+      if (ch) ch.destroy();
+      const pctK = ['netMargin', 'grossMargin', 'roe'].includes(k);
+      ch = mkChart($('#tc'), { type: 'line', data: { labels: arr.map(x => String(x.period).slice(0, 4)), datasets: [{ label: opts.find(o => o[0] === k)[1], data: arr.map(x => pctK && Math.abs(x.v) <= 1.5 ? x.v * 100 : x.v), borderColor: cssv('--accent'), backgroundColor: cssv('--accent'), pointRadius: 3, tension: .2 }] }, options: { maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } } } } });
+    };
+    $('#tseg').innerHTML = opts.map(([k, n]) => `<button data-k="${k}">${n}</button>`).join('');
+    $$('#tseg button').forEach(b => b.addEventListener('click', () => show(b.dataset.k)));
+    show(opts[0][0]);
+  });
+}
+
+function tabValuation(s, el) {
+  el.innerHTML = `<div id="vx" class="grid"></div>`;
+  load($('#vx'), async box => {
+    const { q, p, m } = await stockBundle(s);
+    const fin = await D.financials(s).catch(() => null);
+    const f = fundamentals(q, p, m, fin);
+    const d0 = defaultDcf(f);
+    const gn = grahamNumber(f), gg = grahamGrowth(f);
+    box.innerHTML = `<section class="card"><div class="card-h"><div><h2>Fair value</h2><div class="small muted">Three classic ways to estimate what one share is worth. The headline figure is the middle of the three. Change the assumptions to see how sensitive the answer is.</div></div></div><div id="vsum"></div></section>
+    <div class="split"><section class="card"><h2>Discounted cash flow</h2>
+      <p class="small muted" style="margin:0 0 12px">Adds up the free cash flow the company may earn over the next 10 years, discounted back to today, plus a value for everything after.</p>
+      <div class="formgrid">
+        <label class="f">Starting free cash flow ($B)<input class="in" id="d-fcf" type="number" step="0.01" value="${isNum(d0.fcf) ? (d0.fcf / 1e9).toFixed(2) : ''}"></label>
+        <label class="f">Growth, years 1–5 (%)<input class="in" id="d-g" type="number" step="0.5" value="${(d0.g1 * 100).toFixed(1)}"></label>
+        <label class="f">Long-term growth (%)<input class="in" id="d-t" type="number" step="0.25" value="2.5"></label>
+        <label class="f">Discount rate (%)<input class="in" id="d-r" type="number" step="0.25" value="9"></label>
+        <label class="f">Net cash ($B)<input class="in" id="d-n" type="number" step="0.01" value="${(d0.netCash / 1e9).toFixed(2)}"></label>
+        <label class="f">Shares (millions)<input class="in" id="d-s" type="number" step="1" value="${f.sharesM ? f.sharesM.toFixed(0) : ''}"></label>
+      </div><div id="dout" style="margin-top:14px"></div></section>
+      <section class="card"><h2>Other methods</h2><div class="grid" style="gap:14px">
+        <div><div class="eyebrow">Graham number</div><div class="kpi"><span class="v">${fmt.money(gn)}</span></div><div class="small muted">√(22.5 × EPS ${fmt.money(f.eps)} × book value per share ${fmt.money(f.bvps)}). A conservative ceiling for defensive investors.</div></div>
+        <div><div class="eyebrow">Earnings growth formula</div><div class="kpi"><span class="v">${fmt.money(gg)}</span></div><div class="small muted">EPS × (8.5 + 2 × growth). Uses ${fmt.pct(clamp(isNum(f.epsG5) ? f.epsG5 : (f.revG5 || 5), 0, 20), 1)} yearly growth, capped at 20%.</div></div>
+      </div></section></div>`;
+    const ids = ['d-fcf', 'd-g', 'd-t', 'd-r', 'd-n', 'd-s'];
+    const run = () => {
+      const v = Object.fromEntries(ids.map(i => [i, parseFloat($('#' + i).value)]));
+      const res = dcfModel({ fcf: v['d-fcf'] * 1e9, g1: v['d-g'] / 100, gT: v['d-t'] / 100, r: v['d-r'] / 100, netCash: (v['d-n'] || 0) * 1e9, shares: v['d-s'] * 1e6 });
+      const list = [['Discounted cash flow', res && res.perShare], ['Graham number', gn], ['Earnings growth formula', gg]].filter(x => isNum(x[1]) && x[1] > 0);
+      const blend = list.length ? median(list.map(x => x[1])) : null; const vd = verdict(blend, f.price);
+      const max = Math.max(f.price || 0, ...list.map(x => x[1])) * 1.1 || 1;
+      $('#vsum').innerHTML = `<div class="row" style="gap:24px;align-items:flex-end"><div class="kpi"><span class="eyebrow">Fair value (middle estimate)</span><span class="v" style="font-size:2rem">${fmt.money(blend)}</span></div><div class="kpi"><span class="eyebrow">Current price</span><span class="v">${fmt.money(f.price)}</span></div><span class="pill ${vd.tone}" style="font-size:.85rem">${vd.label}${vd.gap != null ? ` · ${vd.gap > 0 ? '+' : ''}${vd.gap.toFixed(0)}% vs price` : ''}</span></div>
+      <div class="grid" style="gap:8px;margin-top:16px">${[...list, ['Current price', f.price]].map(([n, v]) => `<div class="row small" style="flex-wrap:nowrap"><span style="width:170px;flex:none">${n}</span><div class="bar" style="flex:1"><span style="width:${clamp(v / max) * 100}%;background:${n === 'Current price' ? 'var(--fg)' : v >= f.price ? 'var(--up)' : 'var(--down)'}"></span></div><span class="num" style="width:90px;text-align:right">${fmt.money(v)}</span></div>`).join('')}</div>
+      <p class="small muted" style="margin:12px 0 0">Estimates, not predictions. Small changes to growth or the discount rate move the answer a lot.</p>`;
+      $('#dout').innerHTML = res ? `<div class="row" style="align-items:baseline"><div class="kpi"><span class="eyebrow">Value per share</span><span class="v">${fmt.money(res.perShare)}</span></div><span class="spacer"></span><span class="small muted">Next 10 years ${fmt.big(res.pv)} + later years ${fmt.big(res.pvTv)}</span></div><details style="margin-top:10px"><summary class="small">Year-by-year cash flows</summary><div class="tbl-wrap"><table><thead><tr><th>Year</th><th class="r">Growth</th><th class="r">Cash flow</th><th class="r">Worth today</th></tr></thead><tbody>${res.rows.map(r => `<tr><td>${r.y}</td><td class="r num">${fmt.pct(r.g * 100, 1)}</td><td class="r num">${fmt.big(r.cf)}</td><td class="r num">${fmt.big(r.disc)}</td></tr>`).join('')}</tbody></table></div></details>` : '<div class="note">Enter a positive free cash flow and shares, and keep the discount rate above long-term growth.</div>';
+    };
+    ids.forEach(i => $('#' + i).addEventListener('input', run));
+    run();
+  });
+}
+
+function tabDividends(s, el) {
+  el.innerHTML = `<div id="dv" class="grid"></div>`;
+  load($('#dv'), async box => {
+    const { q, p, m } = await stockBundle(s);
+    const fin = await D.financials(s).catch(() => ({ years: [] }));
+    const f = fundamentals(q, p, m, fin);
+    if (!(f.dps > 0) && !(f.divYield > 0)) { box.innerHTML = `<section class="card empty"><h2>${esc(s)} doesn't pay a dividend</h2><span>Companies that don't pay dividends usually reinvest profits or buy back shares instead.</span></section>`; return; }
+    const Y = fin.years.filter(y => isNum(y.dividendsPaid));
+    const cover = f.last && f.last.fcf && f.last.dividendsPaid ? f.last.fcf / Math.abs(f.last.dividendsPaid) : null;
+    const safety = !isNum(f.payout) ? null : f.payout < 60 && (!isNum(cover) || cover > 1.5) ? ['Well covered', 'good'] : f.payout < 85 && (!isNum(cover) || cover > 1) ? ['Covered', 'acc'] : ['Stretched', 'warn'];
+    box.innerHTML = `<div class="grid g4">
+      <div class="card kpi"><span class="eyebrow">Dividend yield</span><span class="v">${fmt.pct(f.divYield)}</span></div>
+      <div class="card kpi"><span class="eyebrow">Dividend per share (yearly)</span><span class="v">${fmt.money(f.dps)}</span></div>
+      <div class="card kpi"><span class="eyebrow">Payout ratio</span><span class="v">${fmt.pct(f.payout, 0)}</span>${safety ? `<span class="pill ${safety[1]}">${safety[0]}</span>` : ''}</div>
+      <div class="card kpi"><span class="eyebrow">5-year dividend growth</span><span class="v">${fmt.pct(f.divG5, 1, true)}</span><span class="small muted">per year</span></div></div>
+    <div class="split"><section class="card"><h2>Cash paid to shareholders</h2>${Y.length ? '<div class="chart-box sm"><canvas id="dvc"></canvas></div>' : '<div class="empty">No history in annual reports.</div>'}<p class="small muted" style="margin:8px 0 0">${isNum(cover) ? `Last year's free cash flow covered dividends ${cover.toFixed(1)} times.` : ''}</p></section>
+    <section class="card"><h2>Income calculator</h2><div class="formgrid"><label class="f">Shares<input class="in" id="dv-n" type="number" min="0" step="any" value="100"></label><label class="f">Yearly dividend growth (%)<input class="in" id="dv-g" type="number" step="0.5" value="${isNum(f.divG5) ? clamp(f.divG5, 0, 15).toFixed(1) : 5}"></label></div><div id="dv-o" style="margin-top:12px"></div></section></div>`;
+    if (Y.length) mkChart($('#dvc'), { type: 'bar', data: { labels: Y.map(y => y.year), datasets: [{ label: 'Dividends paid', data: Y.map(y => Math.abs(y.dividendsPaid)), backgroundColor: cssv('--gold'), borderRadius: 4 }, { label: 'Share buybacks', data: Y.map(y => Math.abs(y.buybacks || 0)), backgroundColor: cssv('--accent'), borderRadius: 4 }] }, options: { maintainAspectRatio: false, animation: false, plugins: { tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt.big(c.parsed.y)}` } }, legend: { labels: { boxWidth: 10 } } }, scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => fmt.big(v) } } } } });
+    const calc = () => { const n = +$('#dv-n').value || 0, g = (+$('#dv-g').value || 0) / 100; const y1 = n * f.dps; $('#dv-o').innerHTML = `<div class="stats">${stat('Cost today', fmt.money(n * f.price))}${stat('Income this year', fmt.money(y1))}${stat('Per quarter', fmt.money(y1 / 4))}${stat('Income in 10 years', fmt.money(y1 * Math.pow(1 + g, 10)))}</div><p class="small muted" style="margin:8px 0 0">Assumes the dividend grows ${fmt.pct(g * 100, 1)} a year. Dividends can be cut.</p>`; };
+    ['dv-n', 'dv-g'].forEach(i => $('#' + i).addEventListener('input', calc)); calc();
+  });
+}
+
+function tabScore(s, el) {
+  el.innerHTML = `<div id="sx"></div>`;
+  load($('#sx'), async box => {
+    const { q, p, m } = await stockBundle(s); const f = fundamentals(q, p, m); const sc = harzScore(f);
+    box.innerHTML = `<section class="card"><div class="row" style="gap:24px;align-items:center">${scoreRing(sc.total, sc.grade)}<div style="flex:1;min-width:240px"><h2>Harz Score: ${sc.total ?? '–'} / 100</h2><p class="muted" style="margin:6px 0 0;max-width:62ch">A quick health check out of 100, built from five pillars worth 20 points each. Each pillar compares the company's numbers with simple benchmarks. It's a starting point for research, not a buy or sell signal.</p></div></div></section>
+    <div class="grid g2" style="margin-top:16px">${sc.pillars.map(pl => `<section class="card"><div class="card-h"><h3>${pl.key}</h3><span class="num">${pl.score ?? '–'}/20</span></div><div class="bar"><span style="width:${(pl.score || 0) * 5}%;background:${pl.score >= 14 ? 'var(--up)' : pl.score >= 8 ? 'var(--gold)' : 'var(--down)'}"></span></div><p class="small muted" style="margin:10px 0 0">${esc(pl.why)}</p></section>`).join('')}</div>
+    <section class="card" style="margin-top:16px"><h2>How each pillar is scored</h2><dl class="gl">
+      <div><dt>Value</dt><dd>Full points for P/E near 10 and price to free cash flow near 10, none above 45. Price/book scores best near 1.5.</dd></div>
+      <div><dt>Quality</dt><dd>Return on equity up to 30%, net margin up to 25% and gross margin up to 60%.</dd></div>
+      <div><dt>Growth</dt><dd>Five-year revenue and EPS growth, plus last year's revenue growth. Top marks at 20 to 25% a year.</dd></div>
+      <div><dt>Health</dt><dd>Debt/equity near zero, current ratio of 2 or more, and interest covered 15 times or more.</dd></div>
+      <div><dt>Momentum</dt><dd>One-year price return and where the price sits in its 52-week range.</dd></div></dl></section>`;
+  });
+}
+
+function tabInsights(s, el) {
+  el.innerHTML = `<div id="ix"></div>`;
+  load($('#ix'), async box => {
+    const { q, p, m } = await stockBundle(s);
+    const [earn, recs, fin] = await Promise.all([D.earnings(s).catch(() => []), D.recs(s).catch(() => []), D.financials(s).catch(() => null)]);
+    const f = fundamentals(q, p, m, fin);
+    const ins = buildInsights(f, { earnings: earn, recs, val: valuations(f) });
+    const good = ins.filter(i => i.tone === 'good'), warn = ins.filter(i => i.tone === 'warn' || i.tone === 'bad'), info = ins.filter(i => i.tone === 'info');
+    const col = (t, arr) => `<section class="card"><h2>${t}</h2>${arr.length ? arr.map(i => `<div class="insight"><span class="dot ${i.tone}"></span><span>${esc(i.text)}</span></div>`).join('') : '<div class="muted">Nothing stands out.</div>'}</section>`;
+    box.innerHTML = `<div class="note" style="margin-bottom:16px">Plain-English takeaways generated from ${esc(p.name || s)}'s latest numbers by fixed rules, so every point can be checked against the Key metrics tab.</div><div class="grid g2">${col('Strengths', good)}${col('Things to watch', warn)}</div>${info.length ? `<div style="margin-top:16px">${col('Context', info)}</div>` : ''}`;
+  });
+}
+
+function tabNews(s, el) {
+  el.innerHTML = `<section class="card"><div class="card-h"><h2>Latest news</h2><span class="small muted">Last 10 days</span></div><div id="nx"></div></section>`;
+  load($('#nx'), async box => { box.innerHTML = newsList(await D.news(s), 30); });
+}
+
+function tabEarnings(s, el) {
+  el.innerHTML = `<div class="split"><section class="card"><h2>Earnings per share: actual vs estimate</h2><div class="chart-box sm"><canvas id="ec"></canvas></div><div id="et" style="margin-top:12px"></div></section><section class="card"><h2>Next report</h2><div id="en"></div></section></div>`;
+  load($('#et'), async box => {
+    const e = (await D.earnings(s)).slice(0, 8).reverse();
+    if (!e.length) { box.innerHTML = '<div class="empty">No earnings history.</div>'; $('#ec').parentElement.remove(); return; }
+    mkChart($('#ec'), { type: 'line', data: { labels: e.map(x => `Q${x.quarter} ${x.year}`), datasets: [
+      { label: 'Estimate', data: e.map(x => x.estimate), borderColor: cssv('--muted'), backgroundColor: cssv('--surface'), pointRadius: 6, pointBorderWidth: 2, showLine: false },
+      { label: 'Actual', data: e.map(x => x.actual), borderColor: cssv('--accent'), pointBackgroundColor: e.map(x => x.actual >= x.estimate ? cssv('--up') : cssv('--down')), pointBorderColor: e.map(x => x.actual >= x.estimate ? cssv('--up') : cssv('--down')), pointRadius: 6, showLine: false }] },
+      options: { maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { boxWidth: 10, usePointStyle: true } }, tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt.money(c.parsed.y)}` } } }, scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => '$' + v } } } } });
+    box.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Quarter</th><th class="r">Estimate</th><th class="r">Actual</th><th class="r">Surprise</th></tr></thead><tbody>${e.slice().reverse().map(x => `<tr><td>Q${x.quarter} ${x.year}</td><td class="r num">${fmt.money(x.estimate)}</td><td class="r num">${fmt.money(x.actual)}</td><td class="r"><span class="pill ${x.surprisePercent >= 0 ? 'good' : 'bad'}">${fmt.pct(x.surprisePercent, 1, true)}</span></td></tr>`).join('')}</tbody></table></div>`;
+  });
+  load($('#en'), async box => {
+    const c = ((await D.calendar(s)).earningsCalendar || []).filter(x => x.date >= isoDay(0)).sort((a, b) => a.date.localeCompare(b.date))[0];
+    box.innerHTML = c ? `<div class="kpi"><span class="eyebrow">Date</span><span class="v">${fmt.date(c.date + 'T12:00:00')}</span><span class="small muted">${c.hour === 'bmo' ? 'Before market open' : c.hour === 'amc' ? 'After market close' : 'Time not confirmed'}</span></div><div class="stats" style="margin-top:12px">${stat('EPS estimate', fmt.money(c.epsEstimate))}${stat('Revenue estimate', fmt.big(c.revenueEstimate))}${stat('Quarter', c.quarter ? `Q${c.quarter} ${c.year}` : '–')}</div>` : '<div class="empty">No date announced in the next four months.</div>';
+  });
+}
+
+/* ============ COMPARE ============ */
+function pageCompare(arg) {
+  setNav('compare');
+  let syms = (arg ? arg.split(',') : state.compare).map(x => x.trim().toUpperCase()).filter(x => SYM_RE.test(x));
+  if (arg && syms.length === 1) syms = [...new Set([syms[0], ...state.compare.filter(x => x !== syms[0])])].slice(0, 3);
+  syms = [...new Set(syms)].slice(0, 4);
+  state.compare = syms; save('compare');
+  app.innerHTML = `<section class="card"><div class="card-h"><div><h1>Compare stocks</h1><div class="small muted">Up to four stocks side by side. The best value in each row is highlighted.</div></div>
+    <form id="cf" class="row"><input class="in" id="cs" placeholder="Add symbol" style="width:140px" aria-label="Symbol to compare"><button class="btn primary" ${syms.length >= 4 ? 'disabled' : ''}>Add</button></form></div>
+    <div class="chips">${syms.map(x => `<span class="chip"><b>${esc(x)}</b><button class="btn sm ghost" data-cx="${esc(x)}" aria-label="Remove ${esc(x)}" style="padding:0 4px">×</button></span>`).join('')}</div></section>
+    <section class="card"><div class="card-h"><h2>1-year performance</h2></div><div class="chart-box sm" id="cpbox"><canvas id="cpc"></canvas></div></section>
+    <section class="card"><h2>Side by side</h2><div id="ct"></div></section>`;
+  $('#cf').addEventListener('submit', e => { e.preventDefault(); const s = $('#cs').value.trim().toUpperCase(); if (!SYM_RE.test(s)) return; location.hash = 'compare/' + [...syms.filter(x => x !== s), s].slice(-4).join(','); });
+  $$('[data-cx]').forEach(b => b.addEventListener('click', () => { location.hash = 'compare/' + syms.filter(x => x !== b.dataset.cx).join(','); }));
+  if (!syms.length) { $('#ct').innerHTML = '<div class="empty">Add a stock to start comparing.</div>'; return; }
+  load($('#ct'), async box => {
+    const B = await Promise.all(syms.map(s => stockBundle(s).then(b => ({ s, ...b, f: fundamentals(b.q, b.p, b.m) })).catch(() => ({ s, f: {}, p: {}, q: {} }))));
+    B.forEach(b => b.sc = harzScore(b.f));
+    const R = [
+      ['Price', b => b.q.c, fmt.money, 0], ['Today', b => b.q.dp, v => fmt.pct(v, 2, true), 0], ['Market cap', b => isNum(b.f.mcap) ? b.f.mcap * 1e6 : null, fmt.big, 0],
+      ['Harz Score', b => b.sc.total, v => isNum(v) ? v + '/100' : '–', 1],
+      ['P/E', b => b.f.pe > 0 ? b.f.pe : null, fmt.x, -1], ['Price / sales', b => b.f.ps, fmt.x, -1], ['Price / free cash flow', b => b.f.pfcf > 0 ? b.f.pfcf : null, fmt.x, -1],
+      ['Gross margin', b => b.f.grossM, v => fmt.pct(v, 1), 1], ['Net margin', b => b.f.netM, v => fmt.pct(v, 1), 1], ['ROE', b => b.f.roe, v => fmt.pct(v, 1), 1],
+      ['Revenue growth (5y)', b => b.f.revG5, v => fmt.pct(v, 1, true), 1], ['EPS growth (5y)', b => b.f.epsG5, v => fmt.pct(v, 1, true), 1],
+      ['Debt / equity', b => b.f.de, v => fmt.n(v), -1], ['Current ratio', b => b.f.curRatio, v => fmt.n(v), 1],
+      ['Dividend yield', b => b.f.divYield, v => fmt.pct(v), 1], ['Beta', b => b.f.beta, v => fmt.n(v), 0], ['1-year return', b => b.f.ret52, v => fmt.pct(v, 1, true), 1],
+    ];
+    box.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th></th>${B.map(b => `<th class="r"><a href="#stock/${esc(b.s)}/overview" class="sym">${esc(b.s)}</a><div class="small muted" style="text-transform:none;letter-spacing:0;font-weight:400">${esc((b.p.name || '').slice(0, 22))}</div></th>`).join('')}</tr></thead><tbody>${R.map(([n, get, f, dir]) => { const vals = B.map(get); const ok = vals.filter(isNum); const best = dir && ok.length > 1 ? (dir > 0 ? Math.max(...ok) : Math.min(...ok)) : null; return `<tr><td>${n}</td>${vals.map(v => `<td class="r num">${best != null && v === best ? `<span class="best">${f(v)}</span>` : f(v)}</td>`).join('')}</tr>`; }).join('')}</tbody></table></div>`;
+  });
+  (async () => {
+    const id = renderId, box = $('#cpbox');
+    try {
+      const series = [];
+      for (const s of syms) { const rows = await D.candles(s, '1Y'); series.push({ s, rows: rows.slice(-252) }); if (id !== renderId) return; }
+      const labels = series[0].rows.map(r => r.t.slice(0, 10));
+      const pal = [cssv('--accent'), cssv('--gold'), cssv('--down'), cssv('--fg')];
+      mkChart($('#cpc'), { type: 'line', data: { labels, datasets: series.map((x, i) => { const map = new Map(x.rows.map(r => [r.t.slice(0, 10), r.c])); const base = x.rows[0] && x.rows[0].c; return { label: x.s, data: labels.map(l => map.has(l) && base ? (map.get(l) / base - 1) * 100 : null), borderColor: pal[i], borderWidth: 2, pointRadius: 0, spanGaps: true }; }) }, options: { maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false }, plugins: { tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt.pct(c.parsed.y, 1, true)}` } }, legend: { labels: { boxWidth: 10 } } }, scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 6, maxRotation: 0 } }, y: { ticks: { callback: v => v + '%' } } } } });
+    } catch (e) { if (box.isConnected) box.innerHTML = errBox(e); }
+  })();
+}
+
+/* ============ SETTINGS ============ */
+function pageSettings() {
+  setNav('settings');
+  app.innerHTML = `<section class="card"><h1>Settings</h1><p class="muted" style="max-width:65ch">StockHarz runs entirely in your browser. Your keys, watchlist, portfolio and alerts are saved on this device only and are sent nowhere except the data providers below.</p></section>
+  <section class="card"><h2>1. Market data key (required)</h2><p class="small muted" style="max-width:65ch">Finnhub's free plan gives real-time US quotes, company profiles, financial statements, metrics, news, earnings and analyst ratings, up to 60 requests a minute. <a href="https://finnhub.io/register" target="_blank" rel="noopener">Create a free account</a>, then copy the API key from your dashboard.</p>
+    <form class="row" id="k1"><input class="in mono" id="fhk" style="flex:1;min-width:200px" placeholder="Paste your Finnhub API key" value="${esc(state.keys.finnhub)}" autocomplete="off" spellcheck="false"><button class="btn primary">Save and test</button></form><div id="k1o" class="small" style="margin-top:8px"></div></section>
+  <section class="card"><h2>2. Chart data key (recommended)</h2><p class="small muted" style="max-width:65ch">Twelve Data's free plan supplies price history for charts, up to 800 requests a day. Without a key, charts only work for AAPL. <a href="https://twelvedata.com/register" target="_blank" rel="noopener">Create a free account</a>, then copy your API key.</p>
+    <form class="row" id="k2"><input class="in mono" id="tdk" style="flex:1;min-width:200px" placeholder="Paste your Twelve Data API key" value="${esc(state.keys.twelve)}" autocomplete="off" spellcheck="false"><button class="btn primary">Save and test</button></form><div id="k2o" class="small" style="margin-top:8px"></div></section>
+  <section class="card"><h2>Appearance</h2><div class="seg" id="th">${['system', 'light', 'dark'].map(t => `<button data-t="${t}" class="${state.theme === t ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></section>
+  <section class="card"><h2>Your data</h2><p class="small muted">Move your watchlist, portfolio and alerts to another browser. Keys are not included.</p><div class="row"><button class="btn" id="exp">Export backup</button><label class="btn">Import backup<input type="file" id="imp" accept="application/json" hidden></label><span class="spacer"></span><button class="btn danger" id="clr">Clear cached data</button></div></section>`;
+  $('#k1').addEventListener('submit', async e => {
+    e.preventDefault(); state.keys.finnhub = $('#fhk').value.trim(); save('keys'); mem.clear();
+    const o = $('#k1o'); o.textContent = 'Testing…';
+    try { const q = await D.quote('AAPL'); o.innerHTML = `<span class="pill good">Connected</span> AAPL is ${fmt.money(q.c)}`; } catch (err) { o.innerHTML = `<span class="pill bad">Not connected</span> ${esc(err.message)}`; }
+  });
+  $('#k2').addEventListener('submit', async e => {
+    e.preventDefault(); state.keys.twelve = $('#tdk').value.trim(); save('keys'); mem.clear();
+    const o = $('#k2o'); o.textContent = 'Testing…';
+    try { const r = await D.candles('MSFT', '1M'); o.innerHTML = `<span class="pill good">Connected</span> Loaded ${r.length} days of MSFT prices`; } catch (err) { o.innerHTML = `<span class="pill bad">Not connected</span> ${esc(err.message)}`; }
+  });
+  $$('#th button').forEach(b => b.addEventListener('click', () => { state.theme = b.dataset.t; save('theme'); applyTheme(); pageSettings(); }));
+  $('#exp').addEventListener('click', () => {
+    const data = JSON.stringify({ app: 'stock-harz', version: 1, exported: new Date().toISOString(), watchlist: state.watchlist, portfolio: state.portfolio, alerts: state.alerts, compare: state.compare }, null, 2);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = 'stockharz-backup.json'; document.body.appendChild(a); a.click(); a.remove();
+  });
+  $('#imp').addEventListener('change', e => {
+    const file = e.target.files[0]; if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => { try { const d = JSON.parse(rd.result); if (d.app !== 'stock-harz') throw 0; ['watchlist', 'portfolio', 'alerts', 'compare'].forEach(k => { if (Array.isArray(d[k])) { state[k] = d[k]; save(k); } }); toast('Backup imported'); } catch { toast('That file is not a StockHarz backup.'); } };
+    rd.readAsText(file);
+  });
+  $('#clr').addEventListener('click', () => { mem.clear(); try { Object.keys(localStorage).filter(k => k.startsWith(PFX + 'c:')).forEach(k => localStorage.removeItem(k)); } catch {} toast('Cached market data cleared'); });
+}
+
+/* ============ GLOSSARY ============ */
+function pageGlossary() {
+  setNav('glossary');
+  const G = [
+    ['Beta', 'How much a stock tends to move compared with the whole market. 1.0 moves with the market, 1.5 swings 50% more, 0.5 half as much.'],
+    ['Book value per share', "What shareholders would own per share if the company sold its assets and paid its debts, based on the balance sheet."],
+    ['Current ratio', 'Short-term assets divided by short-term debts. Above 1 means the company can cover bills due within a year.'],
+    ['Debt to equity', 'Total debt divided by shareholder equity. Higher means more borrowed money. Companies that buy back many shares can show high numbers even when healthy.'],
+    ['Discounted cash flow (DCF)', 'A valuation that estimates future free cash flow and converts it to today\'s money using a discount rate, which reflects the return you want.'],
+    ['Discount rate', 'The yearly return you require for taking the risk of owning the stock. Higher rates give lower fair values.'],
+    ['Dividend yield', 'Yearly dividends per share divided by the share price.'],
+    ['EPS', 'Earnings per share: net profit divided by the number of shares.'],
+    ['Free cash flow', 'Cash from operations minus money spent on equipment and buildings. Cash that could be paid out or reinvested.'],
+    ['Graham number', "Benjamin Graham's rough ceiling price for a defensive investor: the square root of 22.5 × EPS × book value per share."],
+    ['Gross margin', 'Revenue minus the direct cost of making the product, as a share of revenue.'],
+    ['Harz Score', 'StockHarz\'s own 0 to 100 checkup across value, quality, growth, financial health and momentum. See the Harz Score tab on any stock for the rules.'],
+    ['Interest coverage', 'Operating profit divided by interest owed. Below 3 can be a warning sign.'],
+    ['Market cap', 'Share price multiplied by shares outstanding: what the market values the whole company at.'],
+    ['Net margin', 'Profit after all costs and taxes, as a share of revenue.'],
+    ['P/E ratio', 'Share price divided by earnings per share. How many dollars you pay for one dollar of yearly profit.'],
+    ['Payout ratio', 'Share of profit paid out as dividends.'],
+    ['Return on equity (ROE)', 'Net profit divided by shareholder equity. Shows how well management uses shareholders\' money.'],
+    ['TTM', 'Trailing twelve months: the most recent four quarters added together.'],
+    ['52-week range', 'The lowest and highest prices of the past year.'],
+  ];
+  app.innerHTML = `<section class="card"><h1>Glossary</h1><p class="muted">Plain-English meanings of the terms used across StockHarz.</p><dl class="gl" style="margin-top:12px">${G.map(([t, d]) => `<div><dt>${t}</dt><dd>${d}</dd></div>`).join('')}</dl></section>`;
+}
+
+/* ============ search ============ */
+(function search() {
+  const q = $('#q'), box = $('#results'); let t = null, items = [], sel = -1;
+  const go = s => { box.hidden = true; q.value = ''; q.blur(); location.hash = `stock/${s}/overview`; };
+  const render = () => {
+    box.innerHTML = items.map((r, i) => `<button type="button" class="${i === sel ? 'on' : ''}" data-s="${esc(r.symbol)}"><b>${esc(r.symbol)}</b><span class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.description)}</span></button>`).join('') || '<div class="small muted" style="padding:10px 12px">No matches. Press Enter to open the symbol anyway.</div>';
+    box.hidden = false; $$('button', box).forEach(b => b.addEventListener('mousedown', e => { e.preventDefault(); go(b.dataset.s); }));
+  };
+  q.addEventListener('input', () => {
+    clearTimeout(t); const v = q.value.trim(); sel = -1;
+    if (!v) { box.hidden = true; return; }
+    if (!state.keys.finnhub) { items = []; box.innerHTML = '<div class="small muted" style="padding:10px 12px">Press Enter to open this symbol. Add a Finnhub key in Settings for name search.</div>'; box.hidden = false; return; }
+    t = setTimeout(async () => {
+      try { const r = await D.search(v); items = (r.result || []).filter(x => SYM_RE.test(x.symbol)).sort((a, b) => (a.type === 'Common Stock' ? 0 : 1) - (b.type === 'Common Stock' ? 0 : 1)).slice(0, 10); if (q.value.trim() === v) render(); } catch (e) { box.innerHTML = `<div class="small muted" style="padding:10px 12px">${esc(e.message)}</div>`; box.hidden = false; }
+    }, 280);
+  });
+  q.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' && items.length) { sel = Math.min(items.length - 1, sel + 1); render(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp' && items.length) { sel = Math.max(0, sel - 1); render(); e.preventDefault(); }
+    else if (e.key === 'Enter') { e.preventDefault(); const s = sel >= 0 ? items[sel].symbol : q.value.trim().toUpperCase(); if (SYM_RE.test(s)) go(s); }
+    else if (e.key === 'Escape') { box.hidden = true; }
+  });
+  q.addEventListener('blur', () => setTimeout(() => box.hidden = true, 150));
+})();
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (state.theme === 'system') route(); });
+route();
+</script>
+</body>
+</html>
