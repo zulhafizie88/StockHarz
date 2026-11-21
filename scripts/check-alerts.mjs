@@ -35,7 +35,11 @@ async function telegram(text) {
   if (!r.ok || !j.ok) throw new Error(`Telegram said: ${j.description || r.status}. Check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, and that you pressed Start in your bot.`);
 }
 
-if (!TG || !CHAT) { console.error('TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set. Add them as repository secrets.'); process.exit(1); }
+if (!TG || !CHAT) {
+  // Before Telegram is set up, scheduled runs skip quietly so GitHub doesn't email a failure every 15 minutes.
+  console.log('::warning::TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set yet. See "24-hour alerts on Telegram" in the README.');
+  process.exit(TEST ? 1 : 0);
+}
 
 const list = (readJson(alertsFile, { alerts: [] }).alerts || [])
   .filter(a => a && /^[A-Z0-9.\-]{1,12}$/.test(String(a.symbol || '').toUpperCase()) && ['above', 'below', 'up', 'down'].includes(a.type) && isFinite(+a.value))
