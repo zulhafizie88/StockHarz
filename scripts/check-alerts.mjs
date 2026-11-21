@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEY = (process.env.FINNHUB_API_KEY || '').trim();
-const TG = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+const TG = (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^bot/i, '').replace(/\s+/g, ''); // tolerate a pasted "bot" prefix or spaces
 const CHAT = (process.env.TELEGRAM_CHAT_ID || '').trim();
 const TEST = process.env.ALERTS_TEST === 'true';
 const FINNHUB = process.env.FINNHUB_BASE || 'https://finnhub.io/api/v1';
@@ -32,7 +32,7 @@ async function telegram(text) {
     body: JSON.stringify({ chat_id: CHAT, text, parse_mode: 'HTML', disable_web_page_preview: true }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.ok) throw new Error(`Telegram said: ${j.description || r.status}. Check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, and that you pressed Start in your bot.`);
+  if (!r.ok || !j.ok) throw new Error(r.status === 404 || r.status === 401 ? 'Telegram did not accept TELEGRAM_BOT_TOKEN. Copy the current token from @BotFather again (a revoked token stops working).' : `Telegram said: ${j.description || r.status}. Check TELEGRAM_CHAT_ID, and that you pressed Start in your bot.`);
 }
 
 if (!TG || !CHAT) {
