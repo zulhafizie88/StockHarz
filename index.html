@@ -764,10 +764,11 @@ function pageHome() {
   renderSp500($('#sp500'));
   const IDX = [['SPY', 'S&P 500'], ['QQQ', 'Nasdaq 100'], ['DIA', 'Dow Jones']];
   load($('#mkt'), async el => {
-    const [qs, kl] = await Promise.all([Promise.all(IDX.map(([s]) => D.quote(s))), fetch('data/klci.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+    let usErr = null;
+    const [qs, kl] = await Promise.all([Promise.all(IDX.map(([s]) => D.quote(s))).catch(e => { usErr = e; return null; }), fetch('data/klci.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null)]);
     const klOk = kl && isNum(kl.price);
     const klChg = klOk && isNum(kl.prevClose) ? kl.price - kl.prevClose : null;
-    el.innerHTML = IDX.map(([s, n], i) => `<a class="card kpi" href="#stock/${s}/overview" style="color:inherit;text-decoration:none"><span class="eyebrow">${n} · ${s}</span><span class="v">${fmt.money(qs[i].c)}</span>${chg(qs[i].d, qs[i].dp)}</a>`).join('')
+    el.innerHTML = IDX.map(([s, n], i) => qs ? `<a class="card kpi" href="#stock/${s}/overview" style="color:inherit;text-decoration:none"><span class="eyebrow">${n} · ${s}</span><span class="v">${fmt.money(qs[i].c)}</span>${chg(qs[i].d, qs[i].dp)}</a>` : `<div class="card kpi"><span class="eyebrow">${n} · ${s}</span><span class="v">–</span><span class="small muted">${usErr && usErr.code === 'nokey' ? '<a href="#settings">Add your Finnhub key</a> to load' : esc(usErr ? usErr.message : '')}</span></div>`).join('')
       + `<div class="card kpi" title="FTSE Bursa Malaysia KLCI, in index points. Updated about every 30 minutes during Bursa trading hours."><span class="eyebrow">FTSE Bursa Malaysia KLCI</span><span class="v">${klOk ? fmt.n(kl.price) : '–'}</span>${klOk ? `${chg(klChg, klChg != null ? klChg / kl.prevClose * 100 : null)}<span class="small muted">${kl.time ? 'as of ' + new Date(kl.time * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>` : '<span class="small muted">Not loaded yet</span>'}</div>`;
   }, 80);
   load($('#hw'), async el => { el.innerHTML = await watchTable(state.watchlist.slice(0, 8), true); bindRows(el); });
