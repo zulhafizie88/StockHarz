@@ -209,6 +209,8 @@ a.idx:hover{text-decoration:none;transform:translateY(-2px);box-shadow:0 10px 24
 .m-wide{background:var(--up)} .m-narrow{background:var(--gold)} .m-none{background:var(--down)} .m-unk{background:var(--muted)}
 .tick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:5px}
 .tick{display:block;text-align:center;padding:5px 2px;border-radius:5px;font-family:var(--f-mono);font-size:.74rem;font-weight:600;color:#fff;text-decoration:none}
+.tick{position:relative}
+.tick.shc::after{content:"";position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
 .tick:hover{text-decoration:none;filter:brightness(1.1);outline:2px solid var(--fg);outline-offset:-2px}
 .vm-group{border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:8px}
 @media (max-width:560px){.vm-row{grid-template-columns:minmax(0,1fr)}.vm-row small{display:none}.vm-track{--k:.86}}
@@ -463,6 +465,8 @@ const FIN_CONCEPTS = {
   ltDebt: ['LongTermDebtNoncurrent', 'LongTermDebt'],
   stDebt: ['LongTermDebtCurrent'],
   cp: ['CommercialPaper', 'ShortTermBorrowings'],
+  stInv: ['ShortTermInvestments', 'MarketableSecuritiesCurrent', 'AvailableForSaleSecuritiesDebtSecuritiesCurrent'],
+  intIncome: ['InvestmentIncomeInterest', 'InterestIncomeOther', 'InvestmentIncomeInterestAndDividend'],
 };
 function pickConcept(items, names) {
   if (!Array.isArray(items)) return null;
@@ -485,7 +489,7 @@ const D = {
   search: q => fh('/search', { q, exchange: 'US' }, { ttl: 36e5 }),
   calendar: s => fh('/calendar/earnings', { from: isoDay(0), to: isoDay(120), symbol: s }, { ttl: 12 * 36e5, persist: true }),
   async financials(s) {
-    const ck = 'fin2:' + s; const hit = cacheGet(ck); if (hit !== undefined) return hit;
+    const ck = 'fin3:' + s; const hit = cacheGet(ck); if (hit !== undefined) return hit;
     const j = await fh('/stock/financials-reported', { symbol: s, freq: 'annual' }, { ttl: 1 });
     const seen = new Set(), years = [];
     for (const row of (j && j.data) || []) {
@@ -494,7 +498,7 @@ const D = {
       seen.add(y);
       const rep = row.report || {}, all = [...(rep.ic || []), ...(rep.cf || []), ...(rep.bs || [])];
       const o = { year: y, endDate: row.endDate };
-      for (const [k, names] of Object.entries(FIN_CONCEPTS)) o[k] = pickConcept(k === 'assets' || k === 'liabilities' || k === 'equity' || k === 'cash' || /Debt|cp/.test(k) ? rep.bs : (['cfo', 'capex', 'dividendsPaid', 'buybacks'].includes(k) ? rep.cf : rep.ic), names) ?? pickConcept(all, names);
+      for (const [k, names] of Object.entries(FIN_CONCEPTS)) o[k] = pickConcept(k === 'assets' || k === 'liabilities' || k === 'equity' || k === 'cash' || k === 'stInv' || /Debt|cp/.test(k) ? rep.bs : (['cfo', 'capex', 'dividendsPaid', 'buybacks'].includes(k) ? rep.cf : rep.ic), names) ?? pickConcept(all, names);
       o.fcf = isNum(o.cfo) ? o.cfo - Math.abs(o.capex || 0) : null;
       o.debt = [o.ltDebt, o.stDebt, o.cp].some(isNum) ? (o.ltDebt || 0) + (o.stDebt || 0) + (o.cp || 0) : null;
       years.push(o);
@@ -706,6 +710,40 @@ function moatAnalysis(f, fin) {
   if (isNum(f.revG) && f.revG < 0) risks.push(`Revenue shrank ${fmt.pct(Math.abs(f.revG), 1)} in the last year.`);
   return { rating, pts, max, pct, signals: S, types, risks, gm, roic, fm };
 }
+
+/* ============ Shariah screen (estimate, Securities Commission Malaysia style benchmarks) ============ */
+// Business activity: clearly non-permissible activities fail outright. Financial ratios (SC Malaysia):
+// cash + short-term investments in conventional instruments < 33% of total assets, interest-bearing debt < 33% of total assets.
+// Interest income < 5% of revenue (SC's 5% business-activity benchmark covers interest income).
+const SH_BAD_IND = /bank|insurance|financial services|capital markets|consumer finance|thrifts|mortgage|tobacco|casino|gaming|gambling|brewer|distiller|wine|alcohol/i;
+const SH_GREY_IND = /hotel|restaurant|leisure|media|entertainment|beverage/i;
+const SH_BAD_SYM = { 'BF.B': 'Alcoholic drinks', BF: 'Alcoholic drinks', STZ: 'Alcoholic drinks', TAP: 'Alcoholic drinks', DEO: 'Alcoholic drinks', SAM: 'Alcoholic drinks', LVS: 'Gambling', WYNN: 'Gambling', MGM: 'Gambling', CZR: 'Gambling', DKNG: 'Gambling', PENN: 'Gambling', MO: 'Tobacco', PM: 'Tobacco', BTI: 'Tobacco', HRL: 'Pork products', TSN: 'Pork products', SFD: 'Pork products', BRK: 'Conventional insurance and finance', 'BRK.B': 'Conventional insurance and finance' };
+function shariahScreen(sym, f, fin) {
+  const last = fin && fin.years && fin.years.length ? fin.years[fin.years.length - 1] : null;
+  const checks = [];
+  const ind = f.industry || '';
+  let biz = 'pass', bizWhy = ind ? `Industry: ${ind}` : 'Industry not known';
+  if (SH_BAD_SYM[sym]) { biz = 'fail'; bizWhy = SH_BAD_SYM[sym]; }
+  else if (SH_BAD_IND.test(ind)) { biz = 'fail'; bizWhy = `${ind}: interest-based finance, gambling, alcohol or tobacco`; }
+  else if (SH_GREY_IND.test(ind)) { biz = 'review'; bizWhy = `${ind}: may earn some income from alcohol, gambling or non-permissible entertainment`; }
+  else if (!ind) biz = 'review';
+  checks.push({ name: 'Business activity', value: bizWhy, limit: 'No core non-permissible business', st: biz });
+  const assets = last && last.assets > 0 ? last.assets : null;
+  const cashR = assets && (isNum(last.cash) || isNum(last.stInv)) ? ((last.cash || 0) + (last.stInv || 0)) / assets * 100 : null;
+  const debtR = assets && isNum(last.debt) ? last.debt / assets * 100 : (assets ? 0 : null);
+  const intR = last && last.revenue > 0 && isNum(last.intIncome) ? Math.abs(last.intIncome) / last.revenue * 100 : (last && last.revenue > 0 ? 0 : null);
+  const ratio = (v, lim, warn) => v == null ? 'unknown' : v < warn ? 'pass' : v < lim ? 'review' : 'fail';
+  checks.push({ name: 'Cash and short-term investments ÷ total assets', value: fmt.pct(cashR, 1), limit: 'Below 33%', st: ratio(cashR, 33, 30) });
+  checks.push({ name: 'Interest-bearing debt ÷ total assets', value: fmt.pct(debtR, 1), limit: 'Below 33%', st: ratio(debtR, 33, 30) });
+  checks.push({ name: 'Interest income ÷ revenue', value: fmt.pct(intR, 2), limit: 'Below 5%', st: ratio(intR, 5, 4) });
+  const sts = checks.map(c => c.st);
+  const status = sts.includes('fail') ? 'Not compliant' : (sts.includes('review') || sts.includes('unknown')) ? 'Doubtful' : 'Compliant';
+  return { status, checks, year: last && last.year };
+}
+const shTone = st => st === 'Compliant' ? 'good' : st === 'Not compliant' ? 'bad' : 'warn';
+const shShort = st => st === 'Compliant' ? 'C' : st === 'Not compliant' ? 'N' : 'D';
+const shLong = c => c === 'C' ? 'Compliant' : c === 'N' ? 'Not compliant' : c === 'D' ? 'Doubtful' : 'Not screened';
+
 const moatTone = r => r === 'Wide' ? 'good' : r === 'Narrow' ? 'gold' : r === 'None' ? 'bad' : '';
 
 /* ============ charts ============ */
@@ -907,7 +945,7 @@ async function loadSp500() {
   if (!r || !r.ok) throw new ApiError('nosp', '');
   const j = await r.json();
   j.stocks = (j.stocks || []).filter(x => x && x.s);
-  j.stocks.forEach(x => { x.b = bucketOf(x.price, x.iv); if (!MOATS.some(m => m[0] === x.moat)) x.moat = 'Unknown'; });
+  j.stocks.forEach(x => { x.b = bucketOf(x.price, x.iv); x.shL = shLong(x.sh); if (!MOATS.some(m => m[0] === x.moat)) x.moat = 'Unknown'; });
   return (sp500Cache = j);
 }
 function renderSp500(el) {
@@ -926,15 +964,16 @@ function drawSp500(el, d) {
   const maxN = Math.max(1, ...VBUCKETS.map(([k]) => by[k].length));
   const usedMoats = MOATS.filter(([m]) => rated.some(x => x.moat === m));
   const cheapShare = total ? (by.vu.length + by.u.length + by.f.length) / total * 100 : 0;
-  const st = { bucket: 'vu', sort: store.get('spSort', 'az'), moat: 'all' };
+  const st = { sh: 'all', bucket: 'vu', sort: store.get('spSort', 'az'), moat: 'all' };
   const legend = `<div class="vm-legend">${usedMoats.map(([, c, n]) => `<span><i class="${c}"></i>${n}</span>`).join('')}</div>`;
   el.innerHTML = `<div class="card-h"><div><h2>S&amp;P 500: Valuation &amp; Moat</h2><div class="small muted">Based on StockHarz's own fair value and moat rules. Updated ${fmt.date(d.generated)} · ${total} stocks rated.</div></div></div>
     ${legend}
     <div class="vm-rows">${VBUCKETS.map(([k, n, sub]) => { const arr = by[k], cnt = arr.length; const w = cnt / maxN * 100;
       return `<button type="button" class="vm-row" data-b="${k}" aria-label="Show ${n} stocks"><span><b>${n}</b><small>${sub}</small></span><span class="vm-track"><span class="vm-bar" style="width:calc(var(--k) * ${Math.max(w, 0.6)}%)">${usedMoats.map(([m, c, mn]) => { const c2 = arr.filter(x => x.moat === m).length; if (!c2) return ''; const pct = Math.round(c2 / cnt * 100); return `<span class="${c}" style="width:${c2 / cnt * 100}%" title="${mn}: ${c2} stocks (${pct}%)">${pct >= 12 ? pct + '%' : ''}</span>`; }).join('')}</span><span class="vm-count">${cnt}<span class="hide-sm"> stocks (${total ? (cnt / total * 100).toFixed(1) : 0}%)</span></span></span></button>`; }).join('')}</div>
-    <p class="small" style="margin:14px 0 0"><b>${Math.round(cheapShare)}%</b> of the S&amp;P 500 is undervalued or fairly valued by StockHarz's estimate.</p>
+    <p class="small" style="margin:14px 0 0"><b>${Math.round(cheapShare)}%</b> of the S&amp;P 500 is undervalued or fairly valued by StockHarz's estimate.${rated.some(x => x.sh) ? ` <b>${rated.filter(x => x.sh === 'C').length}</b> stocks pass the Shariah screen (white dot on the tile).` : ''}</p>
     <div class="row" style="margin-top:16px;gap:8px">
       <div class="seg" id="spm" role="group" aria-label="Filter by moat"><button type="button" data-m="all" class="on">All moats</button>${usedMoats.map(([m, , n]) => `<button type="button" data-m="${m}">${n}</button>`).join('')}</div>
+      ${rated.some(x => x.sh) ? `<div class="seg" id="spsh" role="group" aria-label="Filter by Shariah status"><button type="button" data-h="all" class="on">All</button><button type="button" data-h="C">Shariah compliant</button></div>` : ''}
       <span class="spacer"></span>
       <label class="small muted" for="sps">Sort</label><select class="in" id="sps"><option value="az">A to Z</option><option value="disc">Biggest discount first</option><option value="cap">Largest company first</option></select>
       <button class="btn" type="button" id="spall">Show all groups</button>
@@ -945,13 +984,14 @@ function drawSp500(el, d) {
   const grid = () => {
     const sorters = { az: (a, b) => a.s.localeCompare(b.s), disc: (a, b) => (a.price / a.iv) - (b.price / b.iv), cap: (a, b) => (b.mcap || 0) - (a.mcap || 0) };
     const keys = st.bucket === 'all' ? VBUCKETS.map(b => b[0]) : [st.bucket];
-    $('#spg', el).innerHTML = keys.map(k => { const meta = VBUCKETS.find(b => b[0] === k); const arr = by[k].filter(x => st.moat === 'all' || x.moat === st.moat).sort(sorters[st.sort]);
-      return `<div class="vm-group"><div><b>${meta[1]}</b> <span class="small muted">${meta[2]} · ${arr.length} stocks</span></div>${arr.length ? `<div class="tick-grid">${arr.map(x => { const mc = (MOATS.find(m => m[0] === x.moat) || MOATS[3])[1]; return `<a class="tick ${mc}" href="#stock/${esc(x.s)}/valuation" title="${esc(x.name || x.s)} · price ${fmt.money(x.price)} vs fair value ${fmt.money(x.iv)} · ${esc(x.moat)} moat">${esc(x.s)}</a>`; }).join('')}</div>` : '<div class="small muted">None</div>'}</div>`; }).join('');
+    $('#spg', el).innerHTML = keys.map(k => { const meta = VBUCKETS.find(b => b[0] === k); const arr = by[k].filter(x => (st.moat === 'all' || x.moat === st.moat) && (st.sh === 'all' || x.sh === st.sh)).sort(sorters[st.sort]);
+      return `<div class="vm-group"><div><b>${meta[1]}</b> <span class="small muted">${meta[2]} · ${arr.length} stocks</span></div>${arr.length ? `<div class="tick-grid">${arr.map(x => { const mc = (MOATS.find(m => m[0] === x.moat) || MOATS[3])[1]; return `<a class="tick ${mc}${x.sh === 'C' ? ' shc' : ''}" href="#stock/${esc(x.s)}/valuation" title="${esc(x.name || x.s)} · price ${fmt.money(x.price)} vs fair value ${fmt.money(x.iv)} · ${esc(x.moat)} moat${x.sh ? ' · Shariah: ' + x.shL : ''}">${esc(x.s)}</a>`; }).join('')}</div>` : '<div class="small muted">None</div>'}</div>`; }).join('');
     $$('.vm-row', el).forEach(r => r.classList.toggle('on', r.dataset.b === st.bucket));
     $('#spall', el).hidden = st.bucket === 'all';
   };
   $$('.vm-row', el).forEach(r => r.addEventListener('click', () => { st.bucket = st.bucket === r.dataset.b ? 'all' : r.dataset.b; grid(); }));
   $$('#spm button', el).forEach(b => b.addEventListener('click', () => { st.moat = b.dataset.m; $$('#spm button', el).forEach(x => x.classList.toggle('on', x === b)); grid(); }));
+  $$('#spsh button', el).forEach(b => b.addEventListener('click', () => { st.sh = b.dataset.h; $$('#spsh button', el).forEach(x => x.classList.toggle('on', x === b)); grid(); }));
   $('#sps', el).addEventListener('change', e => { st.sort = e.target.value; store.set('spSort', st.sort); grid(); });
   $('#spall', el).addEventListener('click', () => { st.bucket = 'all'; grid(); });
   grid();
@@ -962,11 +1002,11 @@ function bindRows(el) { $$('tr[data-s]', el).forEach(tr => tr.addEventListener('
 /* ============ WATCHLIST ============ */
 async function watchTable(syms, compact) {
   if (!syms.length) return `<div class="empty">Your watchlist is empty. Search for a stock above and add it.</div>`;
-  const data = await Promise.all(syms.map(async s => { const [q, p, m] = await Promise.all([D.quote(s), D.profile(s).catch(() => null), compact ? null : D.metrics(s).catch(() => null)]); return { s, q, p, f: m ? fundamentals(q, p, m) : null }; }));
-  return `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th class="r">Price</th><th class="r">Change</th>${compact ? '' : '<th class="r hide-sm">Day range</th><th class="hide-sm" style="min-width:140px">52-week position</th><th class="r hide-sm">P/E</th><th class="r hide-sm">Yield</th><th></th>'}</tr></thead><tbody>${data.map(({ s, q, p, f }) => `
+  const data = await Promise.all(syms.map(async s => { const [q, p, m, fin] = await Promise.all([D.quote(s), D.profile(s).catch(() => null), compact ? null : D.metrics(s).catch(() => null), compact ? null : D.financials(s).catch(() => null)]); const f = m ? fundamentals(q, p, m, fin) : null; return { s, q, p, f, sh: f ? shariahScreen(s, f, fin) : null }; }));
+  return `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th class="r">Price</th><th class="r">Change</th>${compact ? '' : '<th class="r hide-sm">Day range</th><th class="hide-sm" style="min-width:140px">52-week position</th><th class="r hide-sm">P/E</th><th class="r hide-sm">Yield</th><th class="hide-sm">Shariah</th><th></th>'}</tr></thead><tbody>${data.map(({ s, q, p, f, sh }) => `
     <tr class="click" data-s="${esc(s)}"><td><span class="sym">${esc(s)}</span><div class="small muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(p && p.name || '')}</div></td>
     <td class="r num">${fmt.money(q.c)}</td><td class="r">${chg(q.d, q.dp)}</td>
-    ${compact ? '' : `<td class="r num hide-sm">${fmt.n(q.l)} – ${fmt.n(q.h)}</td><td class="hide-sm">${f ? rangeBar(f.lo52, f.hi52, q.c).split('<div class="row')[0] : '–'}</td><td class="r num hide-sm">${fmt.x(f && f.pe)}</td><td class="r num hide-sm">${fmt.pct(f && f.divYield)}</td>
+    ${compact ? '' : `<td class="r num hide-sm">${fmt.n(q.l)} – ${fmt.n(q.h)}</td><td class="hide-sm">${f ? rangeBar(f.lo52, f.hi52, q.c).split('<div class="row')[0] : '–'}</td><td class="r num hide-sm">${fmt.x(f && f.pe)}</td><td class="r num hide-sm">${fmt.pct(f && f.divYield)}</td><td class="hide-sm">${sh ? `<a class="pill ${shTone(sh.status)}" href="#stock/${esc(s)}/shariah">${sh.status}</a>` : '–'}</td>
     <td class="r"><a class="btn sm ghost" href="#alerts/${esc(s)}" title="Set a price alert">Alert</a><button class="btn sm ghost danger" data-rm="${esc(s)}" title="Remove from watchlist">Remove</button></td>`}</tr>`).join('')}</tbody></table></div>`;
 }
 let watchTimer = null;
@@ -1088,7 +1128,7 @@ async function checkAlerts() {
 setInterval(checkAlerts, 60e3); setTimeout(checkAlerts, 4000);
 
 /* ============ STOCK PAGE ============ */
-const TABS = [['overview', 'Overview'], ['chart', 'Chart'], ['financials', 'Financials'], ['metrics', 'Key metrics'], ['valuation', 'Valuation'], ['moat', 'Moat'], ['dividends', 'Dividends'], ['score', 'Harz Score'], ['insights', 'Insights'], ['news', 'News'], ['earnings', 'Earnings']];
+const TABS = [['overview', 'Overview'], ['chart', 'Chart'], ['financials', 'Financials'], ['metrics', 'Key metrics'], ['valuation', 'Valuation'], ['moat', 'Moat'], ['shariah', 'Shariah'], ['dividends', 'Dividends'], ['score', 'Harz Score'], ['insights', 'Insights'], ['news', 'News'], ['earnings', 'Earnings']];
 async function stockBundle(s) {
   const [q, p, m] = await Promise.all([D.quote(s), D.profile(s).catch(() => ({})), D.metrics(s).catch(() => ({}))]);
   if (!q || (!q.c && !q.pc && !(p && p.name))) throw new ApiError('nf', `No data found for "${s}". Check the ticker symbol (US-listed stocks only on the free plan).`);
@@ -1107,11 +1147,12 @@ function pageStock(s, tab) {
     document.title = `${s} ${fmt.money(q.c)} · StockHarz`;
     el.innerHTML = `<div class="sh">${logoHtml(p, s)}<div style="flex:1;min-width:220px"><div class="row" style="gap:8px"><h1>${esc(p.name || s)}</h1><span class="pill mono">${esc(s)}</span>${p.exchange ? `<span class="pill">${esc(p.exchange.replace(/ .*/, ''))}</span>` : ''}${p.finnhubIndustry ? `<span class="pill acc">${esc(p.finnhubIndustry)}</span>` : ''}</div>
       <div class="row" style="margin-top:6px;gap:14px;align-items:baseline"><span class="price">${fmt.money(q.c)}</span>${chg(q.d, q.dp)}<span class="small muted">${p.currency && p.currency !== 'USD' ? esc(p.currency) + ' · ' : ''}${q.t ? 'as of ' + new Date(q.t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span></div></div>
-      <div class="row"><button class="btn" id="wbtn" aria-pressed="${inWatch(s)}">${inWatch(s) ? 'On watchlist' : 'Add to watchlist'}</button><a class="btn" href="#alerts/${s}">Set alert</a><a class="btn" href="#portfolio">Add to portfolio</a></div></div>`;
+      <div class="row"><a href="#stock/${s}/shariah" id="shbadge" class="pill" title="Shariah screen (estimate)">Shariah: checking…</a><button class="btn" id="wbtn" aria-pressed="${inWatch(s)}">${inWatch(s) ? 'On watchlist' : 'Add to watchlist'}</button><a class="btn" href="#alerts/${s}">Set alert</a><a class="btn" href="#portfolio">Add to portfolio</a></div></div>`;
+    D.financials(s).catch(() => null).then(async fin => { const b = $('#shbadge'); if (!b) return; const { m } = await stockBundle(s); const sh = shariahScreen(s, fundamentals(q, p, m, fin), fin); b.className = 'pill ' + shTone(sh.status); b.textContent = 'Shariah: ' + sh.status; }).catch(() => { const b = $('#shbadge'); if (b) b.textContent = 'Shariah: n/a'; });
     $('#wbtn').addEventListener('click', e => { toggleWatch(s); e.target.setAttribute('aria-pressed', inWatch(s)); e.target.textContent = inWatch(s) ? 'On watchlist' : 'Add to watchlist'; });
   }, 70);
   const el = $('#tab');
-  const T = { overview: tabOverview, chart: tabChart, financials: tabFinancials, metrics: tabMetrics, valuation: tabValuation, moat: tabMoat, dividends: tabDividends, score: tabScore, insights: tabInsights, news: tabNews, earnings: tabEarnings };
+  const T = { overview: tabOverview, chart: tabChart, financials: tabFinancials, metrics: tabMetrics, valuation: tabValuation, moat: tabMoat, shariah: tabShariah, dividends: tabDividends, score: tabScore, insights: tabInsights, news: tabNews, earnings: tabEarnings };
   T[tab](s, el, id);
 }
 
@@ -1310,6 +1351,24 @@ function tabValuation(s, el) {
   });
 }
 
+function tabShariah(s, el) {
+  el.innerHTML = `<div id="shx" class="grid"></div>`;
+  load($('#shx'), async box => {
+    const { q, p, m } = await stockBundle(s);
+    const fin = await D.financials(s).catch(() => null);
+    const f = fundamentals(q, p, m, fin); const sh = shariahScreen(s, f, fin);
+    const icon = st => st === 'pass' ? '<span class="pill good">Pass</span>' : st === 'fail' ? '<span class="pill bad">Fail</span>' : st === 'review' ? '<span class="pill warn">Borderline</span>' : '<span class="pill">No data</span>';
+    const desc = { Compliant: 'Passes the business activity screen and all financial ratio limits.', 'Not compliant': 'Fails at least one screen, shown below.', Doubtful: 'Needs a closer look: a borderline ratio, a business that may earn some non-permissible income, or missing data.' }[sh.status];
+    box.innerHTML = `<section class="card"><div class="row" style="gap:20px;align-items:center"><div class="kpi"><span class="eyebrow">Shariah status (estimate)</span><span class="grade" style="font-size:2rem;color:var(--${sh.status === 'Compliant' ? 'up' : sh.status === 'Not compliant' ? 'down' : 'warn'})">${sh.status}</span></div><p style="flex:1;min-width:240px;margin:0;max-width:62ch">${desc}</p></div></section>
+    <section class="card"><h2>Screening checks</h2><div class="tbl-wrap"><table><thead><tr><th>Check</th><th class="r">${esc(s)}</th><th class="r">Limit</th><th class="r">Result</th></tr></thead><tbody>${sh.checks.map(c => `<tr><td style="white-space:normal">${c.name}</td><td class="r num" style="white-space:normal;max-width:280px">${esc(c.value)}</td><td class="r">${c.limit}</td><td class="r">${icon(c.st)}</td></tr>`).join('')}</tbody></table></div>
+    <p class="small muted" style="margin:10px 0 0">Ratios use the ${sh.year ? `fiscal ${sh.year}` : 'latest'} annual report. "Borderline" means within 3 points of the limit. All cash is treated as held in conventional accounts, which is the cautious assumption.</p></section>
+    <section class="card"><h2>How StockHarz screens</h2><dl class="gl">
+      <div><dt>Standard</dt><dd>Based on the Securities Commission Malaysia two-tier method: a business activity screen and financial ratio limits of 33% of total assets for cash and for interest-bearing debt. The 5% limit on interest income comes from SC's business activity benchmarks.</dd></div>
+      <div><dt>Business activity</dt><dd>Conventional banking, insurance and lending, gambling, alcohol, tobacco and pork products fail. Hotels, restaurants, media and drinks companies are marked Doubtful, because part of their income may be non-permissible.</dd></div>
+      <div><dt>Limits of this check</dt><dd>Free data doesn't split revenue by activity, so the 5% and 20% revenue benchmarks can only be estimated from the industry. This is an estimate, not a fatwa or official certification. Check the Securities Commission's list or a certified Shariah screening service before investing.</dd></div></dl></section>`;
+  });
+}
+
 function tabMoat(s, el) {
   el.innerHTML = `<div id="mo" class="grid"></div>`;
   load($('#mo'), async box => {
@@ -1426,10 +1485,12 @@ function pageCompare(arg) {
   if (!syms.length) { $('#ct').innerHTML = '<div class="empty">Add a stock to start comparing.</div>'; return; }
   load($('#ct'), async box => {
     const B = await Promise.all(syms.map(s => stockBundle(s).then(b => ({ s, ...b, f: fundamentals(b.q, b.p, b.m) })).catch(() => ({ s, f: {}, p: {}, q: {} }))));
+    await Promise.all(B.map(async b => { const fin = await D.financials(b.s).catch(() => null); b.sh = shariahScreen(b.s, fundamentals(b.q, b.p, b.m, fin), fin); }));
     B.forEach(b => b.sc = harzScore(b.f));
     const R = [
       ['Price', b => b.q.c, fmt.money, 0], ['Today', b => b.q.dp, v => fmt.pct(v, 2, true), 0], ['Market cap', b => isNum(b.f.mcap) ? b.f.mcap * 1e6 : null, fmt.big, 0],
       ['Harz Score', b => b.sc.total, v => isNum(v) ? v + '/100' : '–', 1],
+      ['Shariah (estimate)', b => b.sh ? b.sh.status : null, v => v ? `<span class="pill ${shTone(v)}">${v}</span>` : '–', 0],
       ['Moat score', b => { const mo = moatAnalysis(b.f, null); return mo.rating === 'Unknown' ? null : Math.round(mo.pct * 100); }, v => isNum(v) ? (v >= 70 ? 'Wide' : v >= 45 ? 'Narrow' : 'None') + ` (${v})` : '–', 1],
       ['P/E', b => b.f.pe > 0 ? b.f.pe : null, fmt.x, -1], ['Price / sales', b => b.f.ps, fmt.x, -1], ['Price / free cash flow', b => b.f.pfcf > 0 ? b.f.pfcf : null, fmt.x, -1],
       ['Gross margin', b => b.f.grossM, v => fmt.pct(v, 1), 1], ['Net margin', b => b.f.netM, v => fmt.pct(v, 1), 1], ['ROE', b => b.f.roe, v => fmt.pct(v, 1), 1],
@@ -1508,6 +1569,7 @@ function pageGlossary() {
     ['Harz Score', 'StockHarz\'s own 0 to 100 checkup across value, quality, growth, financial health and momentum. See the Harz Score tab on any stock for the rules.'],
     ['Interest coverage', 'Operating profit divided by interest owed. Below 3 can be a warning sign.'],
     ['Economic moat', 'A lasting advantage that protects a company\'s profits from competitors, such as a strong brand, patents, low costs or customers who find it hard to switch. StockHarz rates it Wide, Narrow or None from returns, margins and cash flow over several years.'],
+    ['Shariah compliant', 'A stock that passes Shariah screening: its main business is permissible and its cash, debt and interest income stay within set limits. StockHarz estimates this with Securities Commission Malaysia benchmarks. It is not an official certification.'],
     ['Market cap', 'Share price multiplied by shares outstanding: what the market values the whole company at.'],
     ['Net margin', 'Profit after all costs and taxes, as a share of revenue.'],
     ['P/E ratio', 'Share price divided by earnings per share. How many dollars you pay for one dollar of yearly profit.'],

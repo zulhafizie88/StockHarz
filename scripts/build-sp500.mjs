@@ -68,7 +68,7 @@ const dom = new JSDOM(html, {
   },
 });
 const W = dom.window;
-const app = W.eval('({ D, fundamentals, valuations, moatAnalysis, mem })');
+const app = W.eval('({ D, fundamentals, valuations, moatAnalysis, shariahScreen, mem })');
 
 let list = await getList();
 if (LIMIT) list = list.slice(0, LIMIT);
@@ -84,8 +84,9 @@ for (const [i, it] of list.entries()) {
     const f = app.fundamentals(q, p, m, fin);
     const v = app.valuations(f);
     const mo = app.moatAnalysis(f, fin);
+    const sh = app.shariahScreen(it.s, f, fin);
     const r2 = x => (typeof x === 'number' && isFinite(x)) ? Math.round(x * 100) / 100 : null;
-    out.push({ s: it.s, name: it.name || (p && p.name) || '', sector: it.sector, price: r2(f.price), iv: r2(v.blend), moat: mo.rating, moatPts: mo.pts, moatMax: mo.max, mcap: r2(f.mcap) });
+    out.push({ s: it.s, name: it.name || (p && p.name) || '', sector: it.sector, price: r2(f.price), iv: r2(v.blend), moat: mo.rating, moatPts: mo.pts, moatMax: mo.max, sh: sh.status === 'Compliant' ? 'C' : sh.status === 'Not compliant' ? 'N' : 'D', mcap: r2(f.mcap) });
   } catch (e) {
     failed.push(it.s); console.warn(`${it.s}: ${e.message}`);
   }

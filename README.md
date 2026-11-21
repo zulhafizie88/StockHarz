@@ -34,6 +34,12 @@ One-time setup:
 1. In the repository, open Settings > Secrets and variables > Actions > New repository secret. Name it `FINNHUB_API_KEY` and paste your Finnhub key.
 2. Open the Actions tab, pick "Update S&P 500 valuation and moat data", and press "Run workflow" to build it the first time.
 
+## Shariah screen (estimate)
+
+Each stock gets a Shariah status: Compliant, Doubtful or Not compliant. It follows the Securities Commission Malaysia two-tier method: a business activity screen (no conventional banking, insurance, gambling, alcohol, tobacco or pork) and financial ratio limits (cash and interest-bearing debt each below 33% of total assets; interest income below 5% of revenue). The status shows on the stock's Shariah tab, the header badge, the watchlist, Compare and the S&P 500 tiles (white dot = compliant, plus a "Shariah compliant" filter).
+
+Free data doesn't split revenue by activity, so this is an estimate, not a fatwa or official certification. Check the Securities Commission's list or a certified screening service before investing.
+
 ## Limits of the free setup
 - Alerts only run while a StockHarz tab is open. Phone or email alerts in the background would need a server.
 - Insights come from fixed rules, not an AI model. Real AI summaries would need a paid AI API key.
