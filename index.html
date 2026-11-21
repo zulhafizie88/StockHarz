@@ -894,7 +894,7 @@ function tabChart(s, el) {
     const last = rows[rows.length - 1].c;
     const at = weeks => rows.length > weeks ? rows[rows.length - 1 - weeks].c : null;
     const ytdRow = rows.find(r => r.t.slice(0, 4) === String(new Date().getFullYear()));
-    const P = [['1 month', at(4)], ['3 months', at(13)], ['6 months', at(26)], ['Year to date', ytdRow && ytdRow.c], ['1 year', at(52)], ['3 years', at(156)], ['5 years', rows[0] && rows[0].c]];
+    const P = [['1 month', at(4)], ['3 months', at(13)], ['6 months', at(26)], ['Year to date', ytdRow && ytdRow.c], ['1 year', at(52)], ['3 years', at(156)], ['5 years', at(260)]];
     box.innerHTML = `<div class="stats">${P.map(([k, v]) => stat(k, isNum(v) ? `<span class="${cls(last - v)}">${fmt.pct((last - v) / v * 100, 1, true)}</span>` : '–')).join('')}</div><p class="small muted" style="margin:8px 0 0">Price change only, from weekly closes. Dividends not included.</p>`;
   }, 80);
 }
