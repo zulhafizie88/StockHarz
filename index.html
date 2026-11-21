@@ -732,7 +732,7 @@ function shariahScreen(sym, f, fin) {
   checks.push({ name: 'Business activity', value: bizWhy, limit: 'No core non-permissible business', st: biz });
   const assets = last && last.assets > 0 ? last.assets : null;
   const cashR = assets && (isNum(last.cash) || isNum(last.stInv)) ? ((last.cash || 0) + (last.stInv || 0)) / assets * 100 : null;
-  const debtR = assets && isNum(last.debt) ? last.debt / assets * 100 : (assets ? 0 : null);
+  const debtR = !assets ? null : isNum(last.debt) && last.debt > 0 ? last.debt / assets * 100 : isNum(f.de) && last.equity > 0 ? f.de * last.equity / assets * 100 : isNum(last.debt) ? 0 : null; // fall back to debt/equity from Finnhub metrics
   const intR = last && last.revenue > 0 && isNum(last.intIncome) ? Math.abs(last.intIncome) / last.revenue * 100 : (last && last.revenue > 0 ? 0 : null);
   const ratio = (v, lim, warn) => v == null ? 'unknown' : v < warn ? 'pass' : v < lim ? 'review' : 'fail';
   checks.push({ name: 'Cash and short-term investments ÷ total assets', value: fmt.pct(cashR, 1), limit: 'Below 33%', st: ratio(cashR, 33, 30) });

@@ -10,4 +10,4 @@ jobs:
       - run: npm i --no-save jsdom@24.1.3 && node scripts/debug-shariah.mjs
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-          SYMS: AAPL,MSFT,KO,GOOGL,NVDA,MCD,DIS,NFLX
+          SYMS: KO,MCD,PEP,PG,AAPL
