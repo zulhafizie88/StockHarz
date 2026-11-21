@@ -17,6 +17,7 @@
   --shadow:0 1px 2px rgba(14,26,31,.06),0 4px 16px rgba(14,26,31,.05);
   --f-display:"Sora","Segoe UI",system-ui,sans-serif; --f-body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --r:12px; color-scheme:light;
+  --idx-spy-a:#2563EB; --idx-spy-b:#0B2E83; --idx-qqq-a:#8B5CF6; --idx-qqq-b:#4C1D95; --idx-dia-a:#0891B2; --idx-dia-b:#134E5E; --idx-kl-a:#F97316; --idx-kl-b:#B4320C; --chip-up:#0F7A43; --chip-down:#B42318;
   --brand-blue:#0B2E83; --brand-blue-2:#1D4ED8; --brand-orange:#F97316; --brand-orange-2:#FDBA74; --on-brand:#FFFFFF;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
@@ -162,6 +163,22 @@ dl.gl{display:grid;gap:14px;margin:0}
 dl.gl dt{font-weight:600} dl.gl dd{margin:2px 0 0;color:var(--muted);max-width:70ch}
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
 .hide-sm{} @media (max-width:640px){.hide-sm{display:none}}
+/* Market today index cards */
+.idx{position:relative;overflow:hidden;border-radius:var(--r);padding:16px 16px 14px;color:#fff;display:grid;gap:6px;min-height:138px;text-decoration:none;background:linear-gradient(135deg,var(--a),var(--b));box-shadow:0 6px 18px -8px var(--b);transition:transform .15s ease,box-shadow .15s ease}
+a.idx:hover{text-decoration:none;transform:translateY(-2px);box-shadow:0 10px 24px -8px var(--b)}
+@media (prefers-reduced-motion:reduce){.idx{transition:none} a.idx:hover{transform:none}}
+.idx.spy{--a:var(--idx-spy-a);--b:var(--idx-spy-b)} .idx.qqq{--a:var(--idx-qqq-a);--b:var(--idx-qqq-b)} .idx.dia{--a:var(--idx-dia-a);--b:var(--idx-dia-b)} .idx.klci{--a:var(--idx-kl-a);--b:var(--idx-kl-b)}
+.idx .wm{position:absolute;right:-6px;bottom:-14px;font-family:var(--f-display);font-weight:700;font-size:4.2rem;line-height:1;opacity:.13;letter-spacing:-.04em;pointer-events:none}
+.idx .top{display:flex;align-items:center;gap:8px;position:relative}
+.idx .nm{font-family:var(--f-display);font-weight:700;font-size:1rem}
+.idx .tk{font-size:.68rem;font-weight:600;letter-spacing:.08em;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3)}
+.idx .val{font-family:var(--f-mono);font-size:1.7rem;font-weight:500;position:relative;line-height:1.15}
+.idx .mv{display:inline-flex;align-items:center;gap:4px;justify-self:start;padding:3px 9px;border-radius:999px;background:#fff;font-family:var(--f-mono);font-size:.8rem;font-weight:600;position:relative}
+.idx .mv.up{color:var(--chip-up)} .idx .mv.down{color:var(--chip-down)} .idx .mv.flat{color:#334155}
+.idx .ft{font-size:.74rem;opacity:.85;position:relative}
+.idx .ft a{color:#fff;text-decoration:underline}
+.idx .mv{white-space:nowrap}
+@media (max-width:520px){.idx{padding:13px 12px 12px;min-height:124px}.idx .val{font-size:1.35rem}.idx .mv{font-size:.72rem;padding:2px 7px}.idx .nm{font-size:.9rem}.idx .wm{font-size:3.2rem}}
 /* Home letterhead */
 .letterhead{position:relative;overflow:hidden;border-radius:var(--r);background:linear-gradient(120deg,var(--brand-blue) 0%,var(--brand-blue-2) 70%);color:var(--on-brand);padding:26px 24px 30px;display:grid;gap:10px}
 .letterhead::after{content:"";position:absolute;left:0;right:0;bottom:0;height:6px;background:linear-gradient(90deg,var(--brand-orange),var(--brand-orange-2))}
@@ -770,7 +787,7 @@ function pageHome() {
     <div class="lh-meta"><span>${esc(today)}</span><span class="o">S&amp;P 500 · KLCI</span></div>
   </header>
   ${noKey ? `<section class="card setup"><h2>Welcome to StockHarz</h2><span>Research any US stock, keep a watchlist, set price alerts and track your portfolio, all free. To load live data, add a free Finnhub key (and optionally a free Twelve Data key for charts) in Settings. Everything you save stays in this browser.</span><span class="small">Already set up on another device? Open StockHarz there, go to Settings and use <b>Copy setup link</b>, then open that link here.</span><div class="row"><a class="btn primary" href="#settings">Set up in 1 minute</a><a class="btn" href="#stock/AAPL/chart">See an AAPL chart now</a></div></section>` : ''}
-  <section><div class="card-h"><h1>Market today</h1><span class="small muted">Index funds as a market gauge</span></div>
+  <section><div class="card-h"><h1>Market today</h1><span class="small muted">US index funds and Bursa Malaysia</span></div>
     <div class="grid g4" id="mkt">${skel(80)}</div></section>
   <section class="card" id="sp500"></section>
   <div class="split">
@@ -788,8 +805,13 @@ function pageHome() {
     const [qs, kl] = await Promise.all([Promise.all(IDX.map(([s]) => D.quote(s))).catch(e => { usErr = e; return null; }), fetch('data/klci.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).catch(() => null)]);
     const klOk = kl && isNum(kl.price);
     const klChg = klOk && isNum(kl.prevClose) ? kl.price - kl.prevClose : null;
-    el.innerHTML = IDX.map(([s, n], i) => qs ? `<a class="card kpi" href="#stock/${s}/overview" style="color:inherit;text-decoration:none"><span class="eyebrow">${n} · ${s}</span><span class="v">${fmt.money(qs[i].c)}</span>${chg(qs[i].d, qs[i].dp)}</a>` : `<div class="card kpi"><span class="eyebrow">${n} · ${s}</span><span class="v">–</span><span class="small muted">${usErr && usErr.code === 'nokey' ? '<a href="#settings">Add your Finnhub key</a> to load' : esc(usErr ? usErr.message : '')}</span></div>`).join('')
-      + `<div class="card kpi" title="FTSE Bursa Malaysia KLCI, in index points. Updated about every 30 minutes during Bursa trading hours."><span class="eyebrow">FTSE Bursa Malaysia KLCI</span><span class="v">${klOk ? fmt.n(kl.price) : '–'}</span>${klOk ? `${chg(klChg, klChg != null ? klChg / kl.prevClose * 100 : null)}<span class="small muted">${kl.time ? 'as of ' + new Date(kl.time * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>` : '<span class="small muted">Not loaded yet</span>'}</div>`;
+    const mv = (d, dp) => { if (!isNum(d)) return ''; const t = d > 0 ? 'up' : d < 0 ? 'down' : 'flat'; return `<span class="mv ${t}">${d > 0 ? '▲' : d < 0 ? '▼' : '■'} ${d > 0 ? '+' : ''}${fmt.n(d)} (${fmt.pct(dp, 2, true)})</span>`; };
+    const card = (cls, name, tk, wm, val, move, foot, href) => `<${href ? `a href="${href}"` : 'div'} class="idx ${cls}"><span class="wm" aria-hidden="true">${wm}</span><div class="top"><span class="nm">${name}</span><span class="tk">${tk}</span></div><div class="val">${val}</div>${move}<div class="ft">${foot}</div></${href ? 'a' : 'div'}>`;
+    const META = { SPY: ['spy', 'S&amp;P 500', '500'], QQQ: ['qqq', 'Nasdaq 100', '100'], DIA: ['dia', 'Dow Jones', '30'] };
+    el.innerHTML = IDX.map(([sym], i) => { const [c, n, wm] = META[sym];
+      return qs ? card(c, n, sym, wm, fmt.money(qs[i].c), mv(qs[i].d, qs[i].dp), `Day range ${fmt.n(qs[i].l)} – ${fmt.n(qs[i].h)}`, `#stock/${sym}/overview`)
+        : card(c, n, sym, wm, '–', '', usErr && usErr.code === 'nokey' ? '<a href="#settings">Add your Finnhub key</a> to load' : esc(usErr ? usErr.message : '')); }).join('')
+      + card('klci', 'FBM KLCI', 'MYR', 'KL', klOk ? fmt.n(kl.price) : '–', klOk ? mv(klChg, klChg != null ? klChg / kl.prevClose * 100 : null) : '', klOk ? (kl.time ? 'As of ' + new Date(kl.time * 1000).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'Bursa Malaysia') : 'Not loaded yet');
   }, 80);
   load($('#hw'), async el => { el.innerHTML = await watchTable(state.watchlist.slice(0, 8), true); bindRows(el); });
   load($('#hp'), async el => {
