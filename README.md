@@ -23,7 +23,7 @@ Put `index.html` on GitHub Pages (free):
 Your keys and data are stored in each browser separately. To copy your watchlist, portfolio and alerts to another browser, use Settings > Export backup, then Import backup on the other browser.
 
 ## What's included
-- Stock pages with tabs for Overview, Chart (1D to MAX, 50- and 200-period averages, volume), Financials (10-K income, cash flow and balance sheet), Key metrics with trends, Fair value (DCF you can adjust, Graham number, earnings growth formula), Dividends (safety and an income calculator), Harz Score (0 to 100 across five pillars), Insights, News and Earnings
+- Stock pages with tabs for Overview, Chart (candlesticks or line, 1D to MAX, 50- and 200-period averages, volume), Financials (10-K income, cash flow and balance sheet), Key metrics with trends, Valuation (DCF you can adjust, Graham number, earnings growth formula, multiples vs the stock's own history and vs peers, overall verdict), Moat (Wide / Narrow / None rating from returns on capital, margins, cash flow, growth and scale), Dividends (safety and an income calculator), Harz Score (0 to 100 across five pillars), Insights, News and Earnings
 - Watchlist with auto-refresh, Portfolio with gains, allocation and dividend income, Price alerts, Compare up to 4 stocks, Glossary
 - Light and dark themes, works on phones
 
