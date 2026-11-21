@@ -716,10 +716,12 @@ function moatAnalysis(f, fin) {
 // cash + short-term investments in conventional instruments < 33% of total assets, interest-bearing debt < 33% of total assets.
 // Interest income < 5% of revenue (SC's 5% business-activity benchmark covers interest income).
 const SH_BAD_IND = /bank|insurance|financial services|capital markets|consumer finance|thrifts|mortgage|tobacco|casino|gaming|gambling|brewer|distiller|wine|alcohol/i;
-const SH_GREY_IND = /hotel|restaurant|leisure|media|entertainment|beverage/i;
+const SH_GREY_IND = /hotel|leisure|entertainment/i;
 const SH_BAD_SYM = { 'BF.B': 'Alcoholic drinks', BF: 'Alcoholic drinks', STZ: 'Alcoholic drinks', TAP: 'Alcoholic drinks', DEO: 'Alcoholic drinks', SAM: 'Alcoholic drinks', LVS: 'Gambling', WYNN: 'Gambling', MGM: 'Gambling', CZR: 'Gambling', DKNG: 'Gambling', PENN: 'Gambling', MO: 'Tobacco', PM: 'Tobacco', BTI: 'Tobacco', HRL: 'Pork products', TSN: 'Pork products', SFD: 'Pork products', BRK: 'Conventional insurance and finance', 'BRK.B': 'Conventional insurance and finance' };
 function shariahScreen(sym, f, fin) {
-  const last = fin && fin.years && fin.years.length ? fin.years[fin.years.length - 1] : null;
+  // Use the newest annual report that has a balance sheet (Finnhub sometimes posts the newest year without one).
+  const ys = (fin && fin.years) || [];
+  const last = [...ys].reverse().find(y => y.assets > 0 && y.revenue > 0) || ys[ys.length - 1] || null;
   const checks = [];
   const ind = f.industry || '';
   let biz = 'pass', bizWhy = ind ? `Industry: ${ind}` : 'Industry not known';
@@ -1403,7 +1405,7 @@ function tabShariah(s, el) {
     <p class="small muted" style="margin:10px 0 0">Ratios use the ${sh.year ? `fiscal ${sh.year}` : 'latest'} annual report. "Borderline" means within 3 points of the limit. All cash is treated as held in conventional accounts, which is the cautious assumption.</p></section>
     <section class="card"><h2>How StockHarz screens</h2><dl class="gl">
       <div><dt>Standard</dt><dd>Based on the Securities Commission Malaysia two-tier method: a business activity screen and financial ratio limits of 33% of total assets for cash and for interest-bearing debt. The 5% limit on interest income comes from SC's business activity benchmarks.</dd></div>
-      <div><dt>Business activity</dt><dd>Conventional banking, insurance and lending, gambling, alcohol, tobacco and pork products fail. Hotels, restaurants, media and drinks companies are marked Doubtful, because part of their income may be non-permissible.</dd></div>
+      <div><dt>Business activity</dt><dd>Conventional banking, insurance and lending, gambling, alcohol, tobacco and pork products fail. Hotels, leisure and entertainment companies are marked Doubtful, because part of their income may be non-permissible.</dd></div>
       <div><dt>Limits of this check</dt><dd>Free data doesn't split revenue by activity, so the 5% and 20% revenue benchmarks can only be estimated from the industry. This is an estimate, not a fatwa or official certification. Check the Securities Commission's list or a certified Shariah screening service before investing.</dd></div></dl></section>`;
   });
 }
