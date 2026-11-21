@@ -523,6 +523,83 @@ function buildInsights(f, extras = {}) {
   return out;
 }
 
+
+/* ============ relative valuation + moat ============ */
+async function relativeValuation(s, f, m, fin) {
+  const ser = (m && m.series && m.series.annual) || {};
+  const fromSeries = k => Array.isArray(ser[k]) ? ser[k].slice(0, 5).map(x => +x.v).filter(v => isNum(v) && v > 0 && v < 1000) : [];
+  const hist = { pe: fromSeries('pe'), pb: fromSeries('pb'), ps: fromSeries('ps'), pfcf: [] };
+  if (hist.pe.length < 3 && fin && fin.years.length) {
+    try {
+      const rows = await D.candles(s, '5Y');
+      hist.pe = fin.years.slice(-5).map(y => { const end = y.endDate || (y.year + '-12-31'); const r = rows.filter(x => x.t <= end).pop(); return r && y.eps > 0 ? r.c / y.eps : null; }).filter(v => isNum(v) && v > 0 && v < 1000);
+    } catch {}
+  }
+  const now = { pe: f.pe > 0 ? f.pe : null, pb: f.pb > 0 ? f.pb : null, ps: f.ps > 0 ? f.ps : null, pfcf: f.pfcf > 0 ? f.pfcf : null };
+  let peers = [];
+  try { peers = (await D.peers(s)).filter(x => x !== s && SYM_RE.test(x)).slice(0, 6); } catch {}
+  const pm = (await Promise.all(peers.map(x => D.metrics(x).then(mm => ({ s: x, f: fundamentals(null, null, mm) })).catch(() => null)))).filter(Boolean);
+  const peerMed = k => median(pm.map(x => x.f[k]).filter(v => isNum(v) && v > 0 && v < 500));
+  return { now, hist, peers: pm, peerMed: { pe: peerMed('pe'), pb: peerMed('pb'), ps: peerMed('ps'), pfcf: peerMed('pfcf') } };
+}
+function relSignal(now, ref) {
+  if (!isNum(now) || !isNum(ref) || ref <= 0) return { tone: '', label: 'No comparison', diff: null };
+  const diff = (now / ref - 1) * 100;
+  if (diff <= -15) return { tone: 'good', label: 'Cheaper', diff };
+  if (diff >= 15) return { tone: 'bad', label: 'Pricier', diff };
+  return { tone: 'acc', label: 'In line', diff };
+}
+function overallValuation(fv, rel) {
+  const sig = [];
+  if (fv.gap != null) sig.push(fv.gap > 15 ? 1 : fv.gap < -15 ? -1 : 0);
+  for (const k of ['pe', 'ps', 'pb', 'pfcf']) {
+    const h = relSignal(rel.now[k], median(rel.hist[k] || [])); if (h.diff != null) sig.push(h.tone === 'good' ? 1 : h.tone === 'bad' ? -1 : 0);
+    const p = relSignal(rel.now[k], rel.peerMed[k]); if (p.diff != null) sig.push(p.tone === 'good' ? 1 : p.tone === 'bad' ? -1 : 0);
+  }
+  if (!sig.length) return { label: 'Not enough data', tone: '', cheap: 0, pricey: 0, n: 0 };
+  const cheap = sig.filter(x => x > 0).length, pricey = sig.filter(x => x < 0).length, net = (cheap - pricey) / sig.length;
+  return { label: net >= 0.25 ? 'Undervalued' : net <= -0.25 ? 'Overvalued' : 'Fairly valued', tone: net >= 0.25 ? 'good' : net <= -0.25 ? 'bad' : 'acc', cheap, pricey, n: sig.length };
+}
+
+function moatAnalysis(f, fin) {
+  const Y = ((fin && fin.years) || []).filter(y => isNum(y.revenue) && y.revenue > 0);
+  const ser = (fn) => Y.map(y => ({ year: y.year, v: fn(y) })).filter(x => isNum(x.v));
+  const gm = ser(y => isNum(y.grossProfit) ? y.grossProfit / y.revenue * 100 : null);
+  const fm = ser(y => isNum(y.fcf) ? y.fcf / y.revenue * 100 : null);
+  const roic = ser(y => { const cap = (y.equity || 0) + (y.debt || 0); return isNum(y.netIncome) && cap > 0 ? y.netIncome / cap * 100 : null; });
+  const vals = a => a.map(x => x.v);
+  const sd = a => { if (a.length < 2) return null; const m = a.reduce((s, x) => s + x, 0) / a.length; return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / a.length); };
+  const roicMed = roic.length ? median(vals(roic)) : f.roi;
+  const gmMed = gm.length ? median(vals(gm)) : f.grossM;
+  const fmMed = fm.length ? median(vals(fm)) : (f.fcfPS && f.price && f.ps ? f.fcfPS / (f.price / f.ps) * 100 : null);
+  const consist = roic.length >= 3 ? roic.filter(x => x.v >= 12).length / roic.length : null;
+  const gmSd = gm.length >= 3 ? sd(vals(gm)) : null;
+  const S = [
+    { name: 'Return on invested capital', value: fmt.pct(roicMed, 1), pts: !isNum(roicMed) ? null : roicMed >= 15 ? 2 : roicMed >= 10 ? 1 : 0, why: 'Profit earned on all the money (equity plus debt) put into the business. Above 15% for years is the clearest sign of a moat.' },
+    { name: 'Consistency of returns', value: consist == null ? '–' : `${Math.round(consist * roic.length)} of ${roic.length} years above 12%`, pts: consist == null ? null : consist >= 0.8 ? 2 : consist >= 0.5 ? 1 : 0, why: 'A moat should protect returns every year, not just in good ones.' },
+    { name: 'Pricing power (gross margin)', value: fmt.pct(gmMed, 1), pts: !isNum(gmMed) ? null : gmMed >= 50 ? 2 : gmMed >= 35 ? 1 : 0, why: 'High gross margins mean customers pay well above the cost of the product, often thanks to a brand, patents or few alternatives.' },
+    { name: 'Margin stability', value: gmSd == null ? '–' : `±${gmSd.toFixed(1)} points`, pts: gmSd == null ? null : gmSd <= 3 ? 2 : gmSd <= 6 ? 1 : 0, why: 'Stable margins suggest competitors cannot easily undercut prices.' },
+    { name: 'Cash generation (FCF margin)', value: fmt.pct(fmMed, 1), pts: !isNum(fmMed) ? null : fmMed >= 15 ? 2 : fmMed >= 8 ? 1 : 0, why: 'Share of sales left as free cash after investment. Strong moats rarely need heavy spending to defend.' },
+    { name: 'Durable growth', value: fmt.pct(f.revG5, 1, true) + ' a year (5y)', pts: !isNum(f.revG5) ? null : f.revG5 >= 8 ? 2 : f.revG5 >= 3 ? 1 : 0, why: 'Growing while keeping high returns shows the advantage is holding up.' },
+    { name: 'Scale', value: fmt.big(isNum(f.mcap) ? f.mcap * 1e6 : null), pts: !isNum(f.mcap) ? null : f.mcap >= 100000 ? 2 : f.mcap >= 10000 ? 1 : 0, why: 'Size can bring lower costs per unit and bargaining power with suppliers.' },
+  ];
+  const got = S.filter(x => x.pts != null);
+  const max = got.length * 2, pts = got.reduce((a, x) => a + x.pts, 0);
+  const pct = max ? pts / max : null;
+  const rating = pct == null || got.length < 3 ? 'Unknown' : pct >= 0.7 ? 'Wide' : pct >= 0.45 ? 'Narrow' : 'None';
+  const types = [];
+  if (gmMed >= 55 && fmMed >= 18) types.push(['Brand or intangible assets', 'Very high margins and cash flow usually come from a trusted brand, patents, licences or unique products.']);
+  if (consist >= 0.8 && f.mcap >= 100000) types.push(['Cost advantage from scale', 'Consistently high returns at very large size point to costs that smaller rivals cannot match.']);
+  if (fmMed >= 20 && roicMed >= 20) types.push(['Switching costs or network effects', 'Customers may find it costly or inconvenient to leave, or the product gets better as more people use it. Check the business to confirm.']);
+  if (!types.length && rating !== 'None' && rating !== 'Unknown') types.push(['Efficient operations', 'Good returns without one standout source. Read the annual report to find what keeps competitors away.']);
+  const risks = [];
+  if (gm.length >= 3 && gm[gm.length - 1].v < gm[0].v - 5) risks.push(`Gross margin fell from ${fmt.pct(gm[0].v, 1)} to ${fmt.pct(gm[gm.length - 1].v, 1)} since ${gm[0].year}, which can mean more competition.`);
+  if (roic.length >= 3 && roic[roic.length - 1].v < roic[0].v - 8) risks.push(`Return on capital dropped from ${fmt.pct(roic[0].v, 1)} to ${fmt.pct(roic[roic.length - 1].v, 1)} since ${roic[0].year}.`);
+  if (isNum(f.revG) && f.revG < 0) risks.push(`Revenue shrank ${fmt.pct(Math.abs(f.revG), 1)} in the last year.`);
+  return { rating, pts, max, pct, signals: S, types, risks, gm, roic, fm };
+}
+const moatTone = r => r === 'Wide' ? 'good' : r === 'Narrow' ? 'gold' : r === 'None' ? 'bad' : '';
+
 /* ============ charts ============ */
 const charts = [];
 function clearCharts() { charts.splice(0).forEach(c => { try { c.destroy(); } catch {} }); }
@@ -537,7 +614,7 @@ function mkChart(canvas, cfg) {
 const sma = (arr, n) => arr.map((_, i) => i < n - 1 ? null : arr.slice(i - n + 1, i + 1).reduce((s, x) => s + x, 0) / n);
 function hexA(hex, a) { const h = hex.replace('#', ''); if (h.length !== 6) return hex; const n = parseInt(h, 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
 
-function drawPriceChart(canvas, rows, range, { showSma = true, compact = false } = {}) {
+function drawPriceChart(canvas, rows, range, { showSma = true, compact = false, candles = false } = {}) {
   let disp = rows;
   if (range === '1D' && rows.length) { const lastDay = rows[rows.length - 1].t.slice(0, 10); disp = rows.filter(r => r.t.startsWith(lastDay)); }
   const closes = rows.map(r => r.c);
@@ -552,21 +629,29 @@ function drawPriceChart(canvas, rows, range, { showSma = true, compact = false }
   grad.addColorStop(0, hexA(col, .22)); grad.addColorStop(1, hexA(col, 0));
   const labels = disp.map(r => range === '1D' ? r.t.slice(11, 16) : r.t.slice(0, 10));
   const ds = [{ label: 'Price', data: disp.map(r => r.c), borderColor: col, backgroundColor: grad, fill: true, borderWidth: 2, pointRadius: 0, tension: .15, yAxisID: 'y' }];
+  const useCandles = candles && disp.every(r => isNum(r.o) && isNum(r.h) && isNum(r.l));
+  if (useCandles) {
+    const upC = cssv('--up'), dnC = cssv('--down');
+    const colors = disp.map(r => r.c >= r.o ? upC : dnC);
+    const tiny = (Math.max(...disp.map(r => r.h)) - Math.min(...disp.map(r => r.l))) * 0.002 || 0.01;
+    ds[0] = { type: 'bar', label: 'Price', data: disp.map(r => { const lo = Math.min(r.o, r.c), hi = Math.max(r.o, r.c); return [lo, hi - lo < tiny ? lo + tiny : hi]; }), backgroundColor: colors, borderWidth: 0, barPercentage: 0.8, categoryPercentage: 0.9, grouped: false, yAxisID: 'y', order: 1 };
+    ds.splice(1, 0, { type: 'bar', label: 'Range', data: disp.map(r => [r.l, r.h]), backgroundColor: colors, barThickness: 1, grouped: false, yAxisID: 'y', order: 2 });
+  }
   if (showSma && !compact && ['6M', '1Y', '5Y'].includes(range)) {
     ds.push({ label: '50-period average', data: s50.slice(start), borderColor: cssv('--gold'), borderWidth: 1.4, pointRadius: 0, fill: false, yAxisID: 'y' });
     ds.push({ label: '200-period average', data: s200.slice(start), borderColor: cssv('--accent'), borderWidth: 1.4, pointRadius: 0, fill: false, borderDash: [5, 4], yAxisID: 'y' });
   }
-  if (!compact) ds.push({ type: 'bar', label: 'Volume', data: disp.map(r => r.v), backgroundColor: hexA(cssv('--muted') || '#888888', .25), yAxisID: 'v', barPercentage: 1, categoryPercentage: 1 });
+  if (!compact) ds.push({ type: 'bar', label: 'Volume', data: disp.map(r => r.v), backgroundColor: hexA(cssv('--muted') || '#888888', .25), yAxisID: 'v', barPercentage: 1, categoryPercentage: 1, grouped: false, order: 5 });
   const maxV = Math.max(...disp.map(r => r.v || 0), 1);
   return mkChart(canvas, {
     type: 'line', data: { labels, datasets: ds },
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: !compact && ds.length > 2, labels: { boxWidth: 12, usePointStyle: true, filter: i => i.text !== 'Volume' } },
-        tooltip: { callbacks: { label: c => c.dataset.label === 'Volume' ? 'Volume ' + fmt.vol(c.parsed.y) : `${c.dataset.label} ${fmt.money(c.parsed.y)}` } } },
+      plugins: { legend: { display: !compact && ds.length > 2, labels: { boxWidth: 12, usePointStyle: true, filter: i => i.text !== 'Volume' && i.text !== 'Range' && i.text !== 'Price' } },
+        tooltip: { filter: i => i.dataset.label !== 'Range', callbacks: { label: c => { if (c.dataset.label === 'Volume') return 'Volume ' + fmt.vol(c.parsed.y); if (useCandles && c.dataset.label === 'Price') { const r = disp[c.dataIndex]; return `Open ${fmt.money(r.o)}  High ${fmt.money(r.h)}  Low ${fmt.money(r.l)}  Close ${fmt.money(r.c)}`; } return `${c.dataset.label} ${fmt.money(c.parsed.y)}`; } } } },
       scales: {
         x: { grid: { display: false }, ticks: { maxTicksLimit: compact ? 3 : 7, maxRotation: 0, autoSkipPadding: 16 } },
-        y: { position: 'right', grid: { color: hexA(cssv('--line') || '#cccccc', .7) }, ticks: { callback: v => '$' + Number(v).toLocaleString() } },
+        y: { position: 'right', beginAtZero: false, grid: { color: hexA(cssv('--line') || '#cccccc', .7) }, ticks: { callback: v => '$' + Number(v).toLocaleString() } },
         ...(compact ? {} : { v: { display: false, max: maxV * 4, beginAtZero: true } }),
       },
     },
@@ -804,7 +889,7 @@ async function checkAlerts() {
 setInterval(checkAlerts, 60e3); setTimeout(checkAlerts, 4000);
 
 /* ============ STOCK PAGE ============ */
-const TABS = [['overview', 'Overview'], ['chart', 'Chart'], ['financials', 'Financials'], ['metrics', 'Key metrics'], ['valuation', 'Fair value'], ['dividends', 'Dividends'], ['score', 'Harz Score'], ['insights', 'Insights'], ['news', 'News'], ['earnings', 'Earnings']];
+const TABS = [['overview', 'Overview'], ['chart', 'Chart'], ['financials', 'Financials'], ['metrics', 'Key metrics'], ['valuation', 'Valuation'], ['moat', 'Moat'], ['dividends', 'Dividends'], ['score', 'Harz Score'], ['insights', 'Insights'], ['news', 'News'], ['earnings', 'Earnings']];
 async function stockBundle(s) {
   const [q, p, m] = await Promise.all([D.quote(s), D.profile(s).catch(() => ({})), D.metrics(s).catch(() => ({}))]);
   if (!q || (!q.c && !q.pc && !(p && p.name))) throw new ApiError('nf', `No data found for "${s}". Check the ticker symbol (US-listed stocks only on the free plan).`);
@@ -827,12 +912,13 @@ function pageStock(s, tab) {
     $('#wbtn').addEventListener('click', e => { toggleWatch(s); e.target.setAttribute('aria-pressed', inWatch(s)); e.target.textContent = inWatch(s) ? 'On watchlist' : 'Add to watchlist'; });
   }, 70);
   const el = $('#tab');
-  const T = { overview: tabOverview, chart: tabChart, financials: tabFinancials, metrics: tabMetrics, valuation: tabValuation, dividends: tabDividends, score: tabScore, insights: tabInsights, news: tabNews, earnings: tabEarnings };
+  const T = { overview: tabOverview, chart: tabChart, financials: tabFinancials, metrics: tabMetrics, valuation: tabValuation, moat: tabMoat, dividends: tabDividends, score: tabScore, insights: tabInsights, news: tabNews, earnings: tabEarnings };
   T[tab](s, el, id);
 }
 
 function chartBlock(s, initial = '1Y', compact = false) {
-  return `<div class="card-h"><h2>${compact ? 'Price' : 'Price chart'}</h2><div class="seg" role="group" aria-label="Chart range">${Object.keys(RANGES).map(r => `<button type="button" data-r="${r}" class="${r === initial ? 'on' : ''}">${r}</button>`).join('')}</div></div><div class="chart-box ${compact ? 'sm' : ''}" id="pcbox"><canvas id="pc"></canvas></div><div id="pcperf" class="small muted" style="margin-top:8px"></div>`;
+  const style = store.get('chartStyle', 'candles');
+  return `<div class="card-h"><h2>${compact ? 'Price' : 'Price chart'}</h2>${compact ? '' : `<div class="seg" role="group" aria-label="Chart style"><button type="button" data-st="candles" class="${style === 'candles' ? 'on' : ''}">Candles</button><button type="button" data-st="line" class="${style === 'line' ? 'on' : ''}">Line</button></div><span class="spacer"></span>`}<div class="seg" role="group" aria-label="Chart range">${Object.keys(RANGES).map(r => `<button type="button" data-r="${r}" class="${r === initial ? 'on' : ''}">${r}</button>`).join('')}</div></div><div class="chart-box ${compact ? 'sm' : ''}" id="pcbox"><canvas id="pc"></canvas></div><div id="pcperf" class="small muted" style="margin-top:8px"></div>`;
 }
 function wireChart(s, root, initial = '1Y', compact = false) {
   let cur = null;
@@ -845,13 +931,15 @@ function wireChart(s, root, initial = '1Y', compact = false) {
       const rows = await D.candles(s, r);
       if (!box.isConnected) return;
       if (!rows.length) { box.innerHTML = '<div class="empty">No price history.</div>'; return; }
-      cur = drawPriceChart($('#pc', root), rows, r, { compact });
+      cur = drawPriceChart($('#pc', root), rows, r, { compact, candles: !compact && store.get('chartStyle', 'candles') === 'candles' });
       const showRows = r === '1D' ? rows.filter(x => x.t.startsWith(rows[rows.length - 1].t.slice(0, 10))) : rows.slice(-(RANGES[r].show || rows.length));
       const a = showRows[0].c, b = showRows[showRows.length - 1].c;
       $('#pcperf', root).innerHTML = `${r} change: <span class="${cls(b - a)} num">${fmt.pct((b - a) / a * 100, 2, true)}</span> · from ${esc(showRows[0].t.slice(0, 10))}${!compact && ['6M', '1Y', '5Y'].includes(r) ? ' · Gold line is the 50-period average, dashed line the 200-period average.' : ''}`;
     } catch (e) { if (box.isConnected) box.innerHTML = errBox(e); }
   };
-  $$('[data-r]', root).forEach(b => b.addEventListener('click', () => draw(b.dataset.r)));
+  let last = initial;
+  $$('[data-r]', root).forEach(b => b.addEventListener('click', () => { last = b.dataset.r; draw(last); }));
+  $$('[data-st]', root).forEach(b => b.addEventListener('click', () => { store.set('chartStyle', b.dataset.st); $$('[data-st]', root).forEach(x => x.classList.toggle('on', x === b)); draw(last); }));
   draw(initial);
 }
 
@@ -877,7 +965,8 @@ function tabOverview(s, el, id) {
     const { q, p, m } = await bundle; const fin = await D.financials(s).catch(() => null); const f = fundamentals(q, p, m, fin); const sc = harzScore(f);
     const val = valuations(f); const v = verdict(val.blend, f.price);
     box.innerHTML = `<div class="card-h"><h2>Harz Score</h2><a class="small" href="#stock/${s}/score">How it's scored</a></div><div class="row" style="gap:16px;flex-wrap:nowrap">${scoreRing(sc.total, sc.grade)}<div class="grid" style="gap:6px;flex:1;min-width:0">${sc.pillars.map(pl => `<div><div class="row small" style="gap:6px"><span>${pl.key}</span><span class="spacer"></span><span class="num muted">${pl.score ?? '–'}/20</span></div><div class="bar"><span style="width:${(pl.score || 0) * 5}%"></span></div></div>`).join('')}</div></div>
-      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><div class="eyebrow">Fair value estimate</div><div class="row" style="align-items:baseline"><span class="kpi"><span class="v">${fmt.money(val.blend)}</span></span><span class="pill ${v.tone}">${v.label}${v.gap != null ? ` · ${v.gap > 0 ? '+' : ''}${v.gap.toFixed(0)}%` : ''}</span></div><a class="small" href="#stock/${s}/valuation">Adjust the assumptions</a></div>`;
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><div class="eyebrow">Fair value estimate</div><div class="row" style="align-items:baseline"><span class="kpi"><span class="v">${fmt.money(val.blend)}</span></span><span class="pill ${v.tone}">${v.label}${v.gap != null ? ` · ${v.gap > 0 ? '+' : ''}${v.gap.toFixed(0)}%` : ''}</span></div><a class="small" href="#stock/${s}/valuation">See full valuation</a></div>
+      <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px" class="row"><span class="eyebrow">Economic moat</span><span class="spacer"></span>${(() => { const mo = moatAnalysis(f, fin); return `<span class="pill ${moatTone(mo.rating)}">${mo.rating}</span>`; })()}<a class="small" href="#stock/${s}/moat">Why</a></div>`;
   });
   load($('#ov-about'), async box => {
     const { p } = await bundle;
@@ -978,7 +1067,7 @@ function tabValuation(s, el) {
     const f = fundamentals(q, p, m, fin);
     const d0 = defaultDcf(f);
     const gn = grahamNumber(f), gg = grahamGrowth(f);
-    box.innerHTML = `<section class="card"><div class="card-h"><div><h2>Fair value</h2><div class="small muted">Three classic ways to estimate what one share is worth. The headline figure is the middle of the three. Change the assumptions to see how sensitive the answer is.</div></div></div><div id="vsum"></div></section>
+    box.innerHTML = `<section class="card" id="vverdict">${skel(90)}</section><section class="card"><div class="card-h"><div><h2>Fair value</h2><div class="small muted">Three classic ways to estimate what one share is worth. The headline figure is the middle of the three. Change the assumptions to see how sensitive the answer is.</div></div></div><div id="vsum"></div></section>
     <div class="split"><section class="card"><h2>Discounted cash flow</h2>
       <p class="small muted" style="margin:0 0 12px">Adds up the free cash flow the company may earn over the next 10 years, discounted back to today, plus a value for everything after.</p>
       <div class="formgrid">
@@ -992,7 +1081,8 @@ function tabValuation(s, el) {
       <section class="card"><h2>Other methods</h2><div class="grid" style="gap:14px">
         <div><div class="eyebrow">Graham number</div><div class="kpi"><span class="v">${fmt.money(gn)}</span></div><div class="small muted">√(22.5 × EPS ${fmt.money(f.eps)} × book value per share ${fmt.money(f.bvps)}). A conservative ceiling for defensive investors.</div></div>
         <div><div class="eyebrow">Earnings growth formula</div><div class="kpi"><span class="v">${fmt.money(gg)}</span></div><div class="small muted">EPS × (8.5 + 2 × growth). Uses ${fmt.pct(clamp(isNum(f.epsG5) ? f.epsG5 : (f.revG5 || 5), 0, 20), 1)} yearly growth, capped at 20%.</div></div>
-      </div></section></div>`;
+      </div></section></div>
+    <div class="grid g2"><section class="card"><h2>Compared with its own history</h2><div id="vhist">${skel(140)}</div></section><section class="card"><h2>Compared with similar companies</h2><div id="vpeer">${skel(140)}</div></section></div>`;
     const ids = ['d-fcf', 'd-g', 'd-t', 'd-r', 'd-n', 'd-s'];
     const run = () => {
       const v = Object.fromEntries(ids.map(i => [i, parseFloat($('#' + i).value)]));
@@ -1007,6 +1097,38 @@ function tabValuation(s, el) {
     };
     ids.forEach(i => $('#' + i).addEventListener('input', run));
     run();
+    const MUL = [['pe', 'P/E'], ['ps', 'Price / sales'], ['pb', 'Price / book'], ['pfcf', 'Price / free cash flow']];
+    let rel;
+    try { rel = await relativeValuation(s, f, m, fin); } catch (e) { $('#vhist').innerHTML = errBox(e); $('#vpeer').innerHTML = ''; return; }
+    if (!$('#vhist')) return;
+    const hrows = MUL.filter(([k]) => rel.hist[k] && rel.hist[k].length >= 2);
+    $('#vhist').innerHTML = hrows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Multiple</th><th class="r">Now</th><th class="r">5-year median</th><th class="r hide-sm">Range</th><th></th></tr></thead><tbody>${hrows.map(([k, n]) => { const h = rel.hist[k], md = median(h), sg = relSignal(rel.now[k], md); return `<tr><td>${n}</td><td class="r num">${fmt.x(rel.now[k])}</td><td class="r num">${fmt.x(md)}</td><td class="r num hide-sm">${fmt.n(Math.min(...h), 1)}–${fmt.n(Math.max(...h), 1)}</td><td class="r"><span class="pill ${sg.tone}">${sg.label}${sg.diff != null ? ` ${sg.diff > 0 ? '+' : ''}${sg.diff.toFixed(0)}%` : ''}</span></td></tr>`; }).join('')}</tbody></table></div><p class="small muted" style="margin:8px 0 0">Is the stock cheaper or pricier than it usually trades? Based on the last five fiscal years.</p>` : '<div class="empty">Not enough history to compare.</div>';
+    const prows = MUL.filter(([k]) => isNum(rel.peerMed[k]));
+    $('#vpeer').innerHTML = prows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Multiple</th><th class="r">${esc(s)}</th><th class="r">Peer median</th><th></th></tr></thead><tbody>${prows.map(([k, n]) => { const sg = relSignal(rel.now[k], rel.peerMed[k]); return `<tr><td>${n}</td><td class="r num">${fmt.x(rel.now[k])}</td><td class="r num">${fmt.x(rel.peerMed[k])}</td><td class="r"><span class="pill ${sg.tone}">${sg.label}${sg.diff != null ? ` ${sg.diff > 0 ? '+' : ''}${sg.diff.toFixed(0)}%` : ''}</span></td></tr>`; }).join('')}</tbody></table></div><p class="small muted" style="margin:8px 0 0">Peers: ${rel.peers.map(x => `<a href="#stock/${esc(x.s)}/valuation">${esc(x.s)}</a>`).join(', ')}. A higher multiple can be deserved if the company grows faster or has a wider moat.</p>` : '<div class="empty">No peer data available.</div>';
+    const val = valuations(f), fv = verdict(val.blend, f.price), ov = overallValuation(fv, rel);
+    const moat = moatAnalysis(f, fin);
+    $('#vverdict').innerHTML = `<div class="row" style="gap:20px;align-items:center"><div class="kpi"><span class="eyebrow">Overall valuation</span><span class="grade" style="font-size:1.8rem;color:var(--${ov.tone === 'good' ? 'up' : ov.tone === 'bad' ? 'down' : 'accent'})">${ov.label}</span></div><div style="flex:1;min-width:240px" class="small muted">${ov.n ? `${ov.cheap} of ${ov.n} checks say cheap and ${ov.pricey} say expensive. The checks are the fair value estimate plus each multiple against its own history and against peers.` : ''} ${moat.rating === 'Wide' ? 'It has a <b>wide moat</b>, so a premium price can be justified.' : moat.rating === 'None' ? 'It shows <b>no clear moat</b>, so a premium price is harder to justify.' : moat.rating === 'Narrow' ? 'It has a <b>narrow moat</b>.' : ''} <a href="#stock/${esc(s)}/moat">See moat</a></div></div>`;
+  });
+}
+
+function tabMoat(s, el) {
+  el.innerHTML = `<div id="mo" class="grid"></div>`;
+  load($('#mo'), async box => {
+    const { q, p, m } = await stockBundle(s);
+    const fin = await D.financials(s).catch(() => null);
+    const f = fundamentals(q, p, m, fin); const mo = moatAnalysis(f, fin);
+    const desc = { Wide: 'Strong, lasting advantages. Competitors should struggle to take its profits for 10 years or more.', Narrow: 'Some advantages that protect profits for now, but they may fade within about 10 years.', None: 'No clear advantage shows up in the numbers. Profits are exposed to competition.', Unknown: 'Not enough financial history to judge.' }[mo.rating];
+    box.innerHTML = `<section class="card"><div class="row" style="gap:24px;align-items:center"><div class="kpi"><span class="eyebrow">Economic moat</span><span class="grade" style="font-size:2.2rem;color:var(--${mo.rating === 'Wide' ? 'up' : mo.rating === 'Narrow' ? 'gold' : mo.rating === 'None' ? 'down' : 'muted'})">${mo.rating}</span><span class="small muted num">${mo.max ? `${mo.pts} of ${mo.max} points` : ''}</span></div><div style="flex:1;min-width:240px"><p style="margin:0 0 6px;max-width:62ch">${desc}</p><p class="small muted" style="margin:0;max-width:62ch">A moat is what protects a company's profits from competitors, like a moat around a castle. StockHarz rates it from the numbers a moat leaves behind: high, steady returns and margins over several years.</p></div></div></section>
+    <div class="split"><section class="card"><h2>What the numbers show</h2><div class="tbl-wrap"><table><thead><tr><th>Signal</th><th class="r">Value</th><th class="r">Points</th></tr></thead><tbody>${mo.signals.map(x => `<tr title="${esc(x.why)}"><td style="white-space:normal">${x.name}<div class="small muted" style="max-width:46ch">${x.why}</div></td><td class="r num">${x.value}</td><td class="r">${x.pts == null ? '<span class="pill">n/a</span>' : `<span class="pill ${x.pts === 2 ? 'good' : x.pts === 1 ? 'gold' : 'bad'}">${x.pts}/2</span>`}</td></tr>`).join('')}</tbody></table></div></section>
+    <section class="grid" style="align-content:start"><div class="card"><h2>Likely source of the moat</h2>${mo.types.length ? mo.types.map(([t, d]) => `<div class="insight"><span class="dot good"></span><span><b>${t}</b><br><span class="small muted">${d}</span></span></div>`).join('') : '<div class="muted">No clear source in the numbers.</div>'}</div>
+    <div class="card"><h2>Threats to watch</h2>${mo.risks.length ? mo.risks.map(r => `<div class="insight"><span class="dot warn"></span><span>${esc(r)}</span></div>`).join('') : '<div class="muted">No warning signs in the recent trend.</div>'}</div></section></div>
+    ${mo.gm.length >= 2 || mo.roic.length >= 2 ? `<section class="card"><h2>Trend</h2><div class="chart-box sm"><canvas id="moc"></canvas></div><p class="small muted" style="margin:8px 0 0">From annual reports. Return on invested capital = net income ÷ (equity + debt).</p></section>` : ''}
+    <p class="small muted">Based on numbers only. A moat also depends on things numbers can't show, like brand loyalty, patents or regulation, so read the company's annual report before relying on this.</p>`;
+    if ($('#moc')) {
+      const yrs = [...new Set([...mo.gm, ...mo.roic, ...mo.fm].map(x => x.year))].sort();
+      const line = (arr, label, col) => ({ label, data: yrs.map(y => { const r = arr.find(x => x.year === y); return r ? r.v : null; }), borderColor: col, backgroundColor: col, pointRadius: 3, tension: .2, spanGaps: true });
+      mkChart($('#moc'), { type: 'line', data: { labels: yrs, datasets: [line(mo.gm, 'Gross margin', cssv('--accent')), line(mo.roic, 'Return on invested capital', cssv('--gold')), line(mo.fm, 'Free cash flow margin', cssv('--up'))] }, options: { maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { boxWidth: 10 } }, tooltip: { callbacks: { label: c => `${c.dataset.label} ${fmt.pct(c.parsed.y, 1)}` } } }, scales: { x: { grid: { display: false } }, y: { ticks: { callback: v => v + '%' } } } } });
+    }
   });
 }
 
@@ -1055,6 +1177,11 @@ function tabInsights(s, el) {
     const [earn, recs, fin] = await Promise.all([D.earnings(s).catch(() => []), D.recs(s).catch(() => []), D.financials(s).catch(() => null)]);
     const f = fundamentals(q, p, m, fin);
     const ins = buildInsights(f, { earnings: earn, recs, val: valuations(f) });
+    const mo = moatAnalysis(f, fin);
+    if (mo.rating === 'Wide') ins.push({ tone: 'good', text: 'Has a wide economic moat: high, steady returns and margins over several years.' });
+    else if (mo.rating === 'Narrow') ins.push({ tone: 'info', text: 'Has a narrow economic moat: some protection from competitors, but not as strong.' });
+    else if (mo.rating === 'None') ins.push({ tone: 'warn', text: 'No clear economic moat shows up in the numbers, so profits are exposed to competition.' });
+    mo.risks.forEach(r => ins.push({ tone: 'warn', text: r }));
     const good = ins.filter(i => i.tone === 'good'), warn = ins.filter(i => i.tone === 'warn' || i.tone === 'bad'), info = ins.filter(i => i.tone === 'info');
     const col = (t, arr) => `<section class="card"><h2>${t}</h2>${arr.length ? arr.map(i => `<div class="insight"><span class="dot ${i.tone}"></span><span>${esc(i.text)}</span></div>`).join('') : '<div class="muted">Nothing stands out.</div>'}</section>`;
     box.innerHTML = `<div class="note" style="margin-bottom:16px">Plain-English takeaways generated from ${esc(p.name || s)}'s latest numbers by fixed rules, so every point can be checked against the Key metrics tab.</div><div class="grid g2">${col('Strengths', good)}${col('Things to watch', warn)}</div>${info.length ? `<div style="margin-top:16px">${col('Context', info)}</div>` : ''}`;
@@ -1104,6 +1231,7 @@ function pageCompare(arg) {
     const R = [
       ['Price', b => b.q.c, fmt.money, 0], ['Today', b => b.q.dp, v => fmt.pct(v, 2, true), 0], ['Market cap', b => isNum(b.f.mcap) ? b.f.mcap * 1e6 : null, fmt.big, 0],
       ['Harz Score', b => b.sc.total, v => isNum(v) ? v + '/100' : '–', 1],
+      ['Moat score', b => { const mo = moatAnalysis(b.f, null); return mo.rating === 'Unknown' ? null : Math.round(mo.pct * 100); }, v => isNum(v) ? (v >= 70 ? 'Wide' : v >= 45 ? 'Narrow' : 'None') + ` (${v})` : '–', 1],
       ['P/E', b => b.f.pe > 0 ? b.f.pe : null, fmt.x, -1], ['Price / sales', b => b.f.ps, fmt.x, -1], ['Price / free cash flow', b => b.f.pfcf > 0 ? b.f.pfcf : null, fmt.x, -1],
       ['Gross margin', b => b.f.grossM, v => fmt.pct(v, 1), 1], ['Net margin', b => b.f.netM, v => fmt.pct(v, 1), 1], ['ROE', b => b.f.roe, v => fmt.pct(v, 1), 1],
       ['Revenue growth (5y)', b => b.f.revG5, v => fmt.pct(v, 1, true), 1], ['EPS growth (5y)', b => b.f.epsG5, v => fmt.pct(v, 1, true), 1],
@@ -1180,10 +1308,12 @@ function pageGlossary() {
     ['Gross margin', 'Revenue minus the direct cost of making the product, as a share of revenue.'],
     ['Harz Score', 'StockHarz\'s own 0 to 100 checkup across value, quality, growth, financial health and momentum. See the Harz Score tab on any stock for the rules.'],
     ['Interest coverage', 'Operating profit divided by interest owed. Below 3 can be a warning sign.'],
+    ['Economic moat', 'A lasting advantage that protects a company\'s profits from competitors, such as a strong brand, patents, low costs or customers who find it hard to switch. StockHarz rates it Wide, Narrow or None from returns, margins and cash flow over several years.'],
     ['Market cap', 'Share price multiplied by shares outstanding: what the market values the whole company at.'],
     ['Net margin', 'Profit after all costs and taxes, as a share of revenue.'],
     ['P/E ratio', 'Share price divided by earnings per share. How many dollars you pay for one dollar of yearly profit.'],
     ['Payout ratio', 'Share of profit paid out as dividends.'],
+    ['Return on invested capital (ROIC)', 'Profit divided by all the money invested in the business, both equity and debt. Steady ROIC above 15% is a classic sign of a moat.'],
     ['Return on equity (ROE)', 'Net profit divided by shareholder equity. Shows how well management uses shareholders\' money.'],
     ['TTM', 'Trailing twelve months: the most recent four quarters added together.'],
     ['52-week range', 'The lowest and highest prices of the past year.'],
