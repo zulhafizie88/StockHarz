@@ -1,0 +1,35 @@
+name: Update KLCI
+
+on:
+  schedule:
+    - cron: '*/30 1-9 * * 1-5' # every 30 minutes during Bursa Malaysia hours (9 AM to 5:30 PM Malaysia time)
+    - cron: '15 10 * * 1-5'    # once after the close
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: klci-data
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch KLCI
+        run: node scripts/build-klci.mjs
+      - name: Commit the data file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/klci.json
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Update KLCI"
+          git pull --rebase origin main
+          git push
