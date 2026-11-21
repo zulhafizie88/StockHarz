@@ -27,8 +27,16 @@ Your keys and data are stored in each browser separately. To copy your watchlist
 - Watchlist with auto-refresh, Portfolio with gains, allocation and dividend income, Price alerts, Compare up to 4 stocks, Glossary
 - Light and dark themes, works on phones
 
+## S&P 500 Valuation & Moat (home page)
+The home page rates every S&P 500 stock with StockHarz's fair value and moat rules. A free GitHub Action (`.github/workflows/sp500.yml`) rebuilds `data/sp500.json` every weekday night, after the US market closes. Each run takes about 40 minutes because it stays under Finnhub's free limit of 60 requests a minute.
+
+One-time setup:
+1. In the repository, open Settings > Secrets and variables > Actions > New repository secret. Name it `FINNHUB_API_KEY` and paste your Finnhub key.
+2. Open the Actions tab, pick "Update S&P 500 valuation and moat data", and press "Run workflow" to build it the first time.
+
 ## Limits of the free setup
 - Alerts only run while a StockHarz tab is open. Phone or email alerts in the background would need a server.
 - Insights come from fixed rules, not an AI model. Real AI summaries would need a paid AI API key.
 - US-listed stocks only (Finnhub free plan). No dividend payment calendar or intraday history before the last trading day.
+- The S&P 500 view updates once a day, so its prices are from the previous close.
 - Not investment advice.

@@ -161,6 +161,24 @@ dl.gl{display:grid;gap:14px;margin:0}
 dl.gl dt{font-weight:600} dl.gl dd{margin:2px 0 0;color:var(--muted);max-width:70ch}
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
 .hide-sm{} @media (max-width:640px){.hide-sm{display:none}}
+/* S&P 500 valuation & moat */
+.vm-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
+.vm-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+.vm-rows{display:grid;gap:10px;margin-top:14px}
+.vm-row{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr);gap:12px;align-items:center;background:none;border:0;padding:4px;border-radius:8px;text-align:left;cursor:pointer;color:inherit}
+.vm-row:hover,.vm-row.on{background:var(--surface-2)}
+.vm-row b{display:block;font-size:.85rem}
+.vm-row small{color:var(--muted);font-size:.72rem}
+.vm-track{display:flex;align-items:center;gap:10px;min-width:0;--k:.78}
+.vm-bar{display:flex;height:26px;border-radius:6px;overflow:hidden;flex:none;min-width:2px}
+.vm-bar span{display:grid;place-items:center;font-size:.7rem;font-weight:600;color:#fff;font-family:var(--f-mono);overflow:hidden;white-space:nowrap}
+.vm-count{font-size:.78rem;color:var(--muted);white-space:nowrap;font-family:var(--f-mono)}
+.m-wide{background:var(--up)} .m-narrow{background:var(--gold)} .m-none{background:var(--down)} .m-unk{background:var(--muted)}
+.tick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:5px}
+.tick{display:block;text-align:center;padding:5px 2px;border-radius:5px;font-family:var(--f-mono);font-size:.74rem;font-weight:600;color:#fff;text-decoration:none}
+.tick:hover{text-decoration:none;filter:brightness(1.1);outline:2px solid var(--fg);outline-offset:-2px}
+.vm-group{border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:8px}
+@media (max-width:560px){.vm-row{grid-template-columns:minmax(0,1fr)}.vm-row small{display:none}.vm-track{--k:.86}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -730,6 +748,7 @@ function pageHome() {
   ${noKey ? `<section class="card setup"><h2>Welcome to StockHarz</h2><span>Research any US stock, keep a watchlist, set price alerts and track your portfolio, all free. To load live data, add a free Finnhub key (and optionally a free Twelve Data key for charts) in Settings. Everything you save stays in this browser.</span><span class="small">Already set up on another device? Open StockHarz there, go to Settings and use <b>Copy setup link</b>, then open that link here.</span><div class="row"><a class="btn primary" href="#settings">Set up in 1 minute</a><a class="btn" href="#stock/AAPL/chart">See an AAPL chart now</a></div></section>` : ''}
   <section><div class="card-h"><h1>Market today</h1><span class="small muted">Index funds as a market gauge</span></div>
     <div class="grid g4" id="mkt">${skel(80)}</div></section>
+  <section class="card" id="sp500"></section>
   <div class="split">
     <section class="card"><div class="card-h"><h2>Your watchlist</h2><a class="btn sm" href="#watchlist">Open watchlist</a></div><div id="hw"></div></section>
     <section class="card"><div class="card-h"><h2>Portfolio</h2><a class="btn sm" href="#portfolio">Open</a></div><div id="hp"></div></section>
@@ -738,6 +757,7 @@ function pageHome() {
     <section class="card"><div class="card-h"><h2>Market news</h2></div><div id="hn"></div></section>
     <section class="card"><div class="card-h"><h2>Upcoming earnings</h2><span class="small muted">From your watchlist</span></div><div id="he"></div></section>
   </div>`;
+  renderSp500($('#sp500'));
   const IDX = [['SPY', 'S&P 500'], ['QQQ', 'Nasdaq 100'], ['DIA', 'Dow Jones'], ['IWM', 'Russell 2000']];
   load($('#mkt'), async el => {
     const qs = await Promise.all(IDX.map(([s]) => D.quote(s)));
@@ -758,6 +778,79 @@ function pageHome() {
     bindRows(el);
   });
 }
+
+/* ============ S&P 500 valuation & moat (data built nightly by .github/workflows/sp500.yml) ============ */
+const VBUCKETS = [
+  ['vu', 'Very undervalued', 'More than 30% below fair value'],
+  ['u', 'Undervalued', '10–30% below fair value'],
+  ['f', 'Fairly valued', 'Within 10% of fair value'],
+  ['o', 'Overvalued', '10–30% above fair value'],
+  ['vo', 'Very overvalued', 'More than 30% above fair value'],
+];
+const MOATS = [['Wide', 'm-wide', 'Wide moat'], ['Narrow', 'm-narrow', 'Narrow moat'], ['None', 'm-none', 'No moat'], ['Unknown', 'm-unk', 'Not rated']];
+function bucketOf(price, iv) {
+  if (!(price > 0) || !(iv > 0)) return null;
+  const r = price / iv;
+  return r <= 0.7 ? 'vu' : r <= 0.9 ? 'u' : r < 1.1 ? 'f' : r < 1.3 ? 'o' : 'vo';
+}
+let sp500Cache = null;
+async function loadSp500() {
+  if (sp500Cache) return sp500Cache;
+  let r;
+  try { r = await fetch('data/sp500.json', { cache: 'no-cache' }); } catch { r = null; }
+  if (!r || !r.ok) throw new ApiError('nosp', '');
+  const j = await r.json();
+  j.stocks = (j.stocks || []).filter(x => x && x.s);
+  j.stocks.forEach(x => { x.b = bucketOf(x.price, x.iv); if (!MOATS.some(m => m[0] === x.moat)) x.moat = 'Unknown'; });
+  return (sp500Cache = j);
+}
+function renderSp500(el) {
+  if (!el) return;
+  el.innerHTML = `<div class="card-h"><div><h2>S&amp;P 500: Valuation &amp; Moat</h2><div class="small muted">Every S&amp;P 500 stock grouped by how its price compares with StockHarz's fair value estimate, coloured by moat.</div></div></div>${skel(200)}`;
+  loadSp500().then(d => drawSp500(el, d)).catch(e => {
+    if (!el.isConnected) return;
+    el.querySelector('.skel').outerHTML = `<div class="note">${location.protocol === 'file:' ? 'This view needs the online version of StockHarz (GitHub Pages), because it reads a data file that is rebuilt every night.' : 'The S&amp;P 500 data has not been built yet. It is created by a nightly job on GitHub once your Finnhub key is added as a repository secret named FINNHUB_API_KEY. See the README for the two steps.'}</div>`;
+  });
+}
+function drawSp500(el, d) {
+  if (!el.isConnected) return;
+  const rated = d.stocks.filter(x => x.b);
+  const total = rated.length;
+  const by = Object.fromEntries(VBUCKETS.map(([k]) => [k, rated.filter(x => x.b === k)]));
+  const maxN = Math.max(1, ...VBUCKETS.map(([k]) => by[k].length));
+  const usedMoats = MOATS.filter(([m]) => rated.some(x => x.moat === m));
+  const cheapShare = total ? (by.vu.length + by.u.length + by.f.length) / total * 100 : 0;
+  const st = { bucket: 'vu', sort: store.get('spSort', 'az'), moat: 'all' };
+  const legend = `<div class="vm-legend">${usedMoats.map(([, c, n]) => `<span><i class="${c}"></i>${n}</span>`).join('')}</div>`;
+  el.innerHTML = `<div class="card-h"><div><h2>S&amp;P 500: Valuation &amp; Moat</h2><div class="small muted">Based on StockHarz's own fair value and moat rules. Updated ${fmt.date(d.generated)} · ${total} stocks rated.</div></div></div>
+    ${legend}
+    <div class="vm-rows">${VBUCKETS.map(([k, n, sub]) => { const arr = by[k], cnt = arr.length; const w = cnt / maxN * 100;
+      return `<button type="button" class="vm-row" data-b="${k}" aria-label="Show ${n} stocks"><span><b>${n}</b><small>${sub}</small></span><span class="vm-track"><span class="vm-bar" style="width:calc(var(--k) * ${Math.max(w, 0.6)}%)">${usedMoats.map(([m, c, mn]) => { const c2 = arr.filter(x => x.moat === m).length; if (!c2) return ''; const pct = Math.round(c2 / cnt * 100); return `<span class="${c}" style="width:${c2 / cnt * 100}%" title="${mn}: ${c2} stocks (${pct}%)">${pct >= 12 ? pct + '%' : ''}</span>`; }).join('')}</span><span class="vm-count">${cnt}<span class="hide-sm"> stocks (${total ? (cnt / total * 100).toFixed(1) : 0}%)</span></span></span></button>`; }).join('')}</div>
+    <p class="small" style="margin:14px 0 0"><b>${Math.round(cheapShare)}%</b> of the S&amp;P 500 is undervalued or fairly valued by StockHarz's estimate.</p>
+    <div class="row" style="margin-top:16px;gap:8px">
+      <div class="seg" id="spm" role="group" aria-label="Filter by moat"><button type="button" data-m="all" class="on">All moats</button>${usedMoats.map(([m, , n]) => `<button type="button" data-m="${m}">${n}</button>`).join('')}</div>
+      <span class="spacer"></span>
+      <label class="small muted" for="sps">Sort</label><select class="in" id="sps"><option value="az">A to Z</option><option value="disc">Biggest discount first</option><option value="cap">Largest company first</option></select>
+      <button class="btn" type="button" id="spall">Show all groups</button>
+    </div>
+    <div id="spg" class="grid" style="gap:12px;margin-top:12px"></div>
+    <p class="small muted" style="margin:10px 0 0">Fair value is the middle of three estimates (cash flow model, Graham number, earnings growth formula) using default assumptions. Click a ticker for the full analysis. Not investment advice.</p>`;
+  $('#sps', el).value = st.sort;
+  const grid = () => {
+    const sorters = { az: (a, b) => a.s.localeCompare(b.s), disc: (a, b) => (a.price / a.iv) - (b.price / b.iv), cap: (a, b) => (b.mcap || 0) - (a.mcap || 0) };
+    const keys = st.bucket === 'all' ? VBUCKETS.map(b => b[0]) : [st.bucket];
+    $('#spg', el).innerHTML = keys.map(k => { const meta = VBUCKETS.find(b => b[0] === k); const arr = by[k].filter(x => st.moat === 'all' || x.moat === st.moat).sort(sorters[st.sort]);
+      return `<div class="vm-group"><div><b>${meta[1]}</b> <span class="small muted">${meta[2]} · ${arr.length} stocks</span></div>${arr.length ? `<div class="tick-grid">${arr.map(x => { const mc = (MOATS.find(m => m[0] === x.moat) || MOATS[3])[1]; return `<a class="tick ${mc}" href="#stock/${esc(x.s)}/valuation" title="${esc(x.name || x.s)} · price ${fmt.money(x.price)} vs fair value ${fmt.money(x.iv)} · ${esc(x.moat)} moat">${esc(x.s)}</a>`; }).join('')}</div>` : '<div class="small muted">None</div>'}</div>`; }).join('');
+    $$('.vm-row', el).forEach(r => r.classList.toggle('on', r.dataset.b === st.bucket));
+    $('#spall', el).hidden = st.bucket === 'all';
+  };
+  $$('.vm-row', el).forEach(r => r.addEventListener('click', () => { st.bucket = st.bucket === r.dataset.b ? 'all' : r.dataset.b; grid(); }));
+  $$('#spm button', el).forEach(b => b.addEventListener('click', () => { st.moat = b.dataset.m; $$('#spm button', el).forEach(x => x.classList.toggle('on', x === b)); grid(); }));
+  $('#sps', el).addEventListener('change', e => { st.sort = e.target.value; store.set('spSort', st.sort); grid(); });
+  $('#spall', el).addEventListener('click', () => { st.bucket = 'all'; grid(); });
+  grid();
+}
+
 function bindRows(el) { $$('tr[data-s]', el).forEach(tr => tr.addEventListener('click', e => { if (e.target.closest('button,a')) return; location.hash = `stock/${tr.dataset.s}/overview`; })); }
 
 /* ============ WATCHLIST ============ */

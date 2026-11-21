@@ -1,0 +1,38 @@
+name: Update S&P 500 valuation and moat data
+
+on:
+  schedule:
+    - cron: '30 22 * * 1-5' # 22:30 UTC on weekdays, after the US market closes (6:30 AM Malaysia time)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sp500-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install jsdom
+        run: npm install --no-save --no-package-lock jsdom@24.1.3
+      - name: Rate every S&P 500 stock
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: node scripts/build-sp500.mjs
+      - name: Commit the data file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/sp500.json
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Update S&P 500 valuation and moat data"
+          git pull --rebase origin main
+          git push
