@@ -17,6 +17,7 @@
   --shadow:0 1px 2px rgba(14,26,31,.06),0 4px 16px rgba(14,26,31,.05);
   --f-display:"Sora","Segoe UI",system-ui,sans-serif; --f-body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --r:12px; color-scheme:light;
+  --brand-blue:#0B2E83; --brand-blue-2:#1D4ED8; --brand-orange:#F97316; --brand-orange-2:#FDBA74; --on-brand:#FFFFFF;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0A1215; --surface:#111C20; --surface-2:#17262B; --fg:#E4EDEF; --muted:#8DA1A8; --line:#223239;
@@ -161,6 +162,18 @@ dl.gl{display:grid;gap:14px;margin:0}
 dl.gl dt{font-weight:600} dl.gl dd{margin:2px 0 0;color:var(--muted);max-width:70ch}
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
 .hide-sm{} @media (max-width:640px){.hide-sm{display:none}}
+/* Home letterhead */
+.letterhead{position:relative;overflow:hidden;border-radius:var(--r);background:linear-gradient(120deg,var(--brand-blue) 0%,var(--brand-blue-2) 70%);color:var(--on-brand);padding:26px 24px 30px;display:grid;gap:10px}
+.letterhead::after{content:"";position:absolute;left:0;right:0;bottom:0;height:6px;background:linear-gradient(90deg,var(--brand-orange),var(--brand-orange-2))}
+.letterhead svg.lh-art{position:absolute;right:-10px;top:0;height:100%;width:min(46%,420px);opacity:.9;pointer-events:none}
+.lh-mark{display:flex;align-items:center;gap:14px;position:relative}
+.lh-word{font-family:var(--f-display);font-weight:700;font-size:clamp(2rem,6vw,3.2rem);letter-spacing:-.02em;line-height:1}
+.lh-word span{color:var(--brand-orange)}
+.lh-tag{position:relative;max-width:52ch;font-size:1rem;opacity:.92}
+.lh-meta{position:relative;display:flex;gap:8px;flex-wrap:wrap}
+.lh-meta span{font-size:.75rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25)}
+.lh-meta span.o{background:var(--brand-orange);border-color:var(--brand-orange);color:#1B0E02}
+@media (max-width:640px){.letterhead svg.lh-art{opacity:.35;width:70%}}
 /* S&P 500 valuation & moat */
 .vm-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
 .vm-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
@@ -186,8 +199,8 @@ dl.gl dt{font-weight:600} dl.gl dd{margin:2px 0 0;color:var(--muted);max-width:7
 <header class="topbar">
   <div class="wrap">
     <a class="brand" href="#home" aria-label="StockHarz home">
-      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="var(--accent)"/><path d="M6 19l5-6 4 3 7-8" fill="none" stroke="var(--accent-fg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="8" r="2" fill="var(--gold)"/></svg>
-      StockHarz
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="var(--brand-blue-2)"/><path d="M6 19l5-6 4 3 7-8" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="8" r="2.4" fill="var(--brand-orange)"/></svg>
+      <span>Stock<span style="color:var(--brand-orange)">Harz</span></span>
     </a>
     <div class="search">
       <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -748,7 +761,14 @@ window.addEventListener('hashchange', route);
 function pageHome() {
   setNav('home');
   const noKey = !state.keys.finnhub;
+  const today = new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   app.innerHTML = `
+  <header class="letterhead" aria-label="StockHarz">
+    <svg class="lh-art" viewBox="0 0 420 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10 170 L70 140 L120 152 L180 105 L230 118 L290 70 L340 84 L410 30" stroke="var(--brand-orange)" stroke-width="5"/><path d="M10 185 L70 165 L120 172 L180 140 L230 150 L290 115 L340 124 L410 85" stroke="rgba(255,255,255,.35)" stroke-width="3"/></g><circle cx="410" cy="30" r="8" fill="var(--brand-orange)"/>${[40, 90, 140, 190, 240, 290, 340, 390].map((x, i) => `<rect x="${x}" y="${120 - (i % 3) * 18 - i * 6}" width="14" height="${40 + (i % 2) * 22}" rx="2" fill="rgba(255,255,255,.10)"/>`).join('')}</svg>
+    <div class="lh-mark"><svg width="54" height="54" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="var(--on-brand)"/><path d="M6 19l5-6 4 3 7-8" fill="none" stroke="var(--brand-blue-2)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="8" r="2.6" fill="var(--brand-orange)"/></svg><div class="lh-word">Stock<span>Harz</span></div></div>
+    <div class="lh-tag">Free stock research: valuation, moat, charts, watchlist and alerts in one place.</div>
+    <div class="lh-meta"><span>${esc(today)}</span><span class="o">S&amp;P 500 · KLCI</span></div>
+  </header>
   ${noKey ? `<section class="card setup"><h2>Welcome to StockHarz</h2><span>Research any US stock, keep a watchlist, set price alerts and track your portfolio, all free. To load live data, add a free Finnhub key (and optionally a free Twelve Data key for charts) in Settings. Everything you save stays in this browser.</span><span class="small">Already set up on another device? Open StockHarz there, go to Settings and use <b>Copy setup link</b>, then open that link here.</span><div class="row"><a class="btn primary" href="#settings">Set up in 1 minute</a><a class="btn" href="#stock/AAPL/chart">See an AAPL chart now</a></div></section>` : ''}
   <section><div class="card-h"><h1>Market today</h1><span class="small muted">Index funds as a market gauge</span></div>
     <div class="grid g4" id="mkt">${skel(80)}</div></section>
