@@ -187,6 +187,7 @@ dl.gl dt{font-weight:600} dl.gl dd{margin:2px 0 0;color:var(--muted);max-width:7
     </nav>
   </div>
 </header>
+<div class="wrap" id="storagewarn" hidden style="padding-block:10px 0"><div class="note warn">This browser isn't saving StockHarz data, so your keys and lists will be lost when you close it. This usually happens in a private or incognito window. Open StockHarz in a normal window instead.</div></div>
 <main class="wrap" id="app"></main>
 <footer><div class="wrap">StockHarz. Prices and fundamentals from Finnhub, price history from Twelve Data. US quotes are real time on the free plans; some data can be delayed. Everything here is for research only and is not investment advice.</div></footer>
 <div id="toasts" aria-live="polite"></div>
@@ -247,6 +248,17 @@ function applyTheme() {
   if (state.theme === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', state.theme);
 }
 applyTheme();
+const storageOK = (() => { try { localStorage.setItem(PFX + 't', '1'); localStorage.removeItem(PFX + 't'); return true; } catch { return false; } })();
+const b64e = o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64d = t => JSON.parse(decodeURIComponent(escape(atob(t.replace(/-/g, '+').replace(/_/g, '/')))));
+function setupLink() { return location.origin + location.pathname + '#keys=' + b64e({ f: state.keys.finnhub || '', t: state.keys.twelve || '' }); }
+function importKeys() {
+  const m = location.hash.match(/^#keys=([A-Za-z0-9_\-]+)/); if (!m) return false;
+  try { const d = b64d(m[1]); if (d && typeof d.f === 'string' && d.f) { state.keys = { finnhub: d.f.trim().slice(0, 100), twelve: String(d.t || '').trim().slice(0, 100) }; save('keys'); setTimeout(() => toast('Your data keys are now set up on this device.'), 400); } } catch {}
+  history.replaceState(null, '', location.pathname + location.search + '#home');
+  return true;
+}
+importKeys();
 
 function toast(msg, ms = 4500) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
@@ -606,7 +618,9 @@ function toggleWatch(s) {
 
 /* ============ router ============ */
 function route() {
+  importKeys();
   clearCharts(); renderId++;
+  const sb = $('#storagewarn'); if (sb) sb.hidden = storageOK;
   const raw = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
   const [page, a, b] = raw.split('/');
   window.scrollTo(0, 0);
@@ -628,7 +642,7 @@ function pageHome() {
   setNav('home');
   const noKey = !state.keys.finnhub;
   app.innerHTML = `
-  ${noKey ? `<section class="card setup"><h2>Welcome to StockHarz</h2><span>Research any US stock, keep a watchlist, set price alerts and track your portfolio, all free. To load live data, add a free Finnhub key (and optionally a free Twelve Data key for charts) in Settings. Everything you save stays in this browser.</span><div class="row"><a class="btn primary" href="#settings">Set up in 1 minute</a><a class="btn" href="#stock/AAPL/chart">See an AAPL chart now</a></div></section>` : ''}
+  ${noKey ? `<section class="card setup"><h2>Welcome to StockHarz</h2><span>Research any US stock, keep a watchlist, set price alerts and track your portfolio, all free. To load live data, add a free Finnhub key (and optionally a free Twelve Data key for charts) in Settings. Everything you save stays in this browser.</span><span class="small">Already set up on another device? Open StockHarz there, go to Settings and use <b>Copy setup link</b>, then open that link here.</span><div class="row"><a class="btn primary" href="#settings">Set up in 1 minute</a><a class="btn" href="#stock/AAPL/chart">See an AAPL chart now</a></div></section>` : ''}
   <section><div class="card-h"><h1>Market today</h1><span class="small muted">Index funds as a market gauge</span></div>
     <div class="grid g4" id="mkt">${skel(80)}</div></section>
   <div class="split">
@@ -1118,6 +1132,8 @@ function pageSettings() {
     <form class="row" id="k1"><input class="in mono" id="fhk" style="flex:1;min-width:200px" placeholder="Paste your Finnhub API key" value="${esc(state.keys.finnhub)}" autocomplete="off" spellcheck="false"><button class="btn primary">Save and test</button></form><div id="k1o" class="small" style="margin-top:8px"></div></section>
   <section class="card"><h2>2. Chart data key (recommended)</h2><p class="small muted" style="max-width:65ch">Twelve Data's free plan supplies price history for charts, up to 800 requests a day. Without a key, charts only work for AAPL. <a href="https://twelvedata.com/register" target="_blank" rel="noopener">Create a free account</a>, then copy your API key.</p>
     <form class="row" id="k2"><input class="in mono" id="tdk" style="flex:1;min-width:200px" placeholder="Paste your Twelve Data API key" value="${esc(state.keys.twelve)}" autocomplete="off" spellcheck="false"><button class="btn primary">Save and test</button></form><div id="k2o" class="small" style="margin-top:8px"></div></section>
+  <section class="card"><h2>Use StockHarz on your phone or another computer</h2><p class="small muted" style="max-width:65ch">Keys are saved separately in each browser. Copy this setup link and open it on your other device (for example, send it to yourself on WhatsApp or email). It saves your keys there in one tap. Only share it with yourself, because anyone with the link can use your free keys.</p>
+    <div class="row"><input class="in mono" id="slink" readonly style="flex:1;min-width:200px" aria-label="Setup link" value=""><button class="btn primary" id="scopy" type="button">Copy setup link</button></div><div id="slo" class="small muted" style="margin-top:6px"></div></section>
   <section class="card"><h2>Appearance</h2><div class="seg" id="th">${['system', 'light', 'dark'].map(t => `<button data-t="${t}" class="${state.theme === t ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></section>
   <section class="card"><h2>Your data</h2><p class="small muted">Move your watchlist, portfolio and alerts to another browser. Keys are not included.</p><div class="row"><button class="btn" id="exp">Export backup</button><label class="btn">Import backup<input type="file" id="imp" accept="application/json" hidden></label><span class="spacer"></span><button class="btn danger" id="clr">Clear cached data</button></div></section>`;
   $('#k1').addEventListener('submit', async e => {
@@ -1130,6 +1146,9 @@ function pageSettings() {
     const o = $('#k2o'); o.textContent = 'Testing…';
     try { const r = await D.candles('MSFT', '1M'); o.innerHTML = `<span class="pill good">Connected</span> Loaded ${r.length} days of MSFT prices`; } catch (err) { o.innerHTML = `<span class="pill bad">Not connected</span> ${esc(err.message)}`; }
   });
+  const fillLink = () => { const i = $('#slink'); if (!state.keys.finnhub) { i.value = ''; i.placeholder = 'Save your Finnhub key above first'; $('#scopy').disabled = true; } else { i.value = setupLink(); $('#scopy').disabled = false; } };
+  fillLink(); ['k1', 'k2'].forEach(id => $('#' + id).addEventListener('submit', () => setTimeout(fillLink, 0)));
+  $('#scopy').addEventListener('click', async () => { const i = $('#slink'); try { await navigator.clipboard.writeText(i.value); $('#slo').textContent = 'Copied. Open it on your other device.'; } catch { i.focus(); i.select(); $('#slo').textContent = 'Press Ctrl+C (or long-press and Copy) to copy the selected link.'; } });
   $$('#th button').forEach(b => b.addEventListener('click', () => { state.theme = b.dataset.t; save('theme'); applyTheme(); pageSettings(); }));
   $('#exp').addEventListener('click', () => {
     const data = JSON.stringify({ app: 'stock-harz', version: 1, exported: new Date().toISOString(), watchlist: state.watchlist, portfolio: state.portfolio, alerts: state.alerts, compare: state.compare }, null, 2);
