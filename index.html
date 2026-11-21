@@ -1081,31 +1081,70 @@ const ALERT_TYPES = { above: 'Price rises above', below: 'Price falls below', up
 function pageAlerts(prefill) {
   setNav('alerts');
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
-  app.innerHTML = `<section class="card"><div class="card-h"><div><h1>Price alerts</h1><div class="small muted">Checked every minute while StockHarz is open in a tab.</div></div>
+  app.innerHTML = `<section class="card"><div class="card-h"><div><h1>Price alerts</h1><div class="small muted">Checked every minute while StockHarz is open, and around the clock on Telegram once set up.</div></div>
     ${perm === 'default' ? '<button class="btn" id="notif">Turn on desktop notifications</button>' : perm === 'granted' ? '<span class="pill good">Desktop notifications on</span>' : '<span class="pill">Alerts show inside the app</span>'}</div>
     <form id="af" class="formgrid">
       <label class="f">Symbol<input class="in" id="af-s" required value="${esc(prefill && SYM_RE.test(prefill.toUpperCase()) ? prefill.toUpperCase() : '')}" placeholder="AAPL"></label>
       <label class="f">Condition<select class="in" id="af-t">${Object.entries(ALERT_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
       <label class="f">Value<input class="in" id="af-v" type="number" step="any" required placeholder="200"></label>
       <button class="btn primary">Create alert</button>
-    </form><p class="small muted" style="margin:10px 0 0">Alerts can't fire while every StockHarz tab is closed. Sending phone or email alerts in the background needs a small server, which isn't part of this free setup.</p></section>
-    <section class="card"><h2>Your alerts</h2><div id="al"></div></section>`;
+    </form><p class="small muted" style="margin:10px 0 0">Alerts in this list fire only while a StockHarz tab is open. For alerts around the clock, send them to your phone with Telegram below.</p></section>
+    <section class="card"><h2>Your alerts</h2><div id="al"></div></section>
+    <section class="card" id="phone"><h2>24-hour alerts on your phone (Telegram)</h2><div id="phbody" class="small muted">Loading…</div></section>`;
+  renderPhone();
   if ($('#notif')) $('#notif').addEventListener('click', async () => { try { await Notification.requestPermission(); } catch {} pageAlerts(); });
   $('#af').addEventListener('submit', e => {
     e.preventDefault();
     const s = $('#af-s').value.trim().toUpperCase(), t = $('#af-t').value, v = +$('#af-v').value;
     if (!SYM_RE.test(s) || !isNum(v)) return toast('Check the symbol and value.');
     state.alerts.unshift({ id: uid(), symbol: s, type: t, value: v, active: true, created: Date.now() }); save('alerts');
-    toast(`Alert set for ${s}`); renderAlerts(); checkAlerts();
+    toast(`Alert set for ${s}`); renderAlerts(); renderPhone(); checkAlerts();
   });
   renderAlerts();
+}
+// 24-hour alerts: a GitHub Action reads data/alerts.json every 15 minutes and messages Telegram.
+const GH_REPO = (() => { const m = location.hostname.match(/^([a-z0-9-]+)\.github\.io$/i); const r = location.pathname.split('/').filter(Boolean)[0]; return m && r ? { owner: m[1], repo: r } : null; })();
+let phoneList = null;
+const alertKey = a => `${a.symbol}|${a.type}|${+a.value}`;
+async function loadPhoneAlerts() {
+  if (phoneList) return phoneList;
+  try { const r = await fetch('data/alerts.json?t=' + Date.now(), { cache: 'no-store' }); phoneList = r.ok ? ((await r.json()).alerts || []) : []; } catch { phoneList = []; }
+  return phoneList;
+}
+function phoneJson() {
+  const list = state.alerts.map(a => ({ id: a.id, symbol: a.symbol, type: a.type, value: a.value }));
+  return JSON.stringify({ alerts: list }, null, 2) + '\n';
+}
+async function renderPhone() {
+  const el = $('#phbody'); if (!el) return;
+  const on = await loadPhoneAlerts(); if (!$('#phbody')) return; renderAlerts();
+  const mine = new Set(state.alerts.map(alertKey)), srv = new Set(on.map(a => alertKey({ ...a, symbol: String(a.symbol).toUpperCase() })));
+  const synced = state.alerts.length === on.length && [...mine].every(k => srv.has(k));
+  const edit = GH_REPO ? `https://github.com/${GH_REPO.owner}/${GH_REPO.repo}/edit/main/data/alerts.json` : '';
+  const runs = GH_REPO ? `https://github.com/${GH_REPO.owner}/${GH_REPO.repo}/actions/workflows/alerts.yml` : '';
+  el.classList.remove('muted');
+  el.innerHTML = `<p style="margin:0 0 10px">A free GitHub Action checks the alerts saved in your repository every 15 minutes during US market hours (9 PM to 6 AM Malaysia time) and sends a Telegram message when one triggers. It works with your phone and computer switched off. Messages can arrive up to about 15 minutes late.</p>
+    <p style="margin:0 0 12px">${on.length ? `<span class="pill good">${on.length} alert${on.length === 1 ? '' : 's'} on your phone</span>` : '<span class="pill">No phone alerts yet</span>'} ${state.alerts.length ? (synced ? '<span class="pill acc">Matches this list</span>' : '<span class="pill gold">This list has changed. Send it again.</span>') : ''}</p>
+    <ol class="steps" style="margin:0 0 12px;padding-left:20px;line-height:1.7">
+      <li>Press <b>Copy alerts for phone</b>.</li>
+      <li>Press <b>Open alerts file on GitHub</b>, select everything in the file, paste, then press <b>Commit changes</b>.</li>
+      <li>Done. GitHub checks them straight away and then every 15 minutes.</li></ol>
+    <div class="row"><button class="btn primary" id="phcopy" ${state.alerts.length ? '' : 'disabled'}>Copy alerts for phone</button>${edit ? `<a class="btn" href="${edit}" target="_blank" rel="noopener">Open alerts file on GitHub</a><a class="btn ghost" href="${runs}" target="_blank" rel="noopener">See recent checks</a>` : ''}</div>
+    <p class="small muted" id="phmsg" style="margin:10px 0 0">${GH_REPO ? 'First time? You need a Telegram bot and two secrets in your repository. The steps are in the README under "24-hour alerts on Telegram".' : 'Phone alerts work on your GitHub Pages copy of StockHarz. The steps are in the README under "24-hour alerts on Telegram".'} Your repository is public, so anyone can see which alerts you set.</p>
+    <textarea id="phjson" class="in" readonly rows="4" style="display:none;width:100%;margin-top:10px;font-family:var(--f-mono)"></textarea>`;
+  const b = $('#phcopy');
+  if (b) b.addEventListener('click', async () => {
+    const txt = phoneJson();
+    try { await navigator.clipboard.writeText(txt); $('#phmsg').textContent = 'Copied. Now open the alerts file on GitHub, replace everything with what you copied, and commit.'; }
+    catch { const t = $('#phjson'); t.style.display = 'block'; t.value = txt; t.focus(); t.select(); $('#phmsg').textContent = 'Copy the selected text below (Ctrl+C, or long-press and Copy).'; }
+  });
 }
 function alertText(a) { return a.type === 'above' ? `above ${fmt.money(a.value)}` : a.type === 'below' ? `below ${fmt.money(a.value)}` : a.type === 'up' ? `up ${a.value}% today` : `down ${a.value}% today`; }
 function renderAlerts() {
   const el = $('#al'); if (!el) return;
   if (!state.alerts.length) { el.innerHTML = '<div class="empty">No alerts yet.</div>'; return; }
-  el.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th>Alert when</th><th>Status</th><th></th></tr></thead><tbody>${state.alerts.map(a => `<tr><td class="sym"><a href="#stock/${esc(a.symbol)}/overview">${esc(a.symbol)}</a></td><td>${esc(alertText(a))}</td><td>${a.active ? '<span class="pill acc">Watching</span>' : `<span class="pill gold">Triggered ${a.hitAt ? new Date(a.hitAt).toLocaleString() : ''} at ${fmt.money(a.hitPrice)}</span>`}</td><td class="r">${a.active ? '' : `<button class="btn sm ghost" data-re="${a.id}">Re-arm</button>`}<button class="btn sm ghost danger" data-x="${a.id}">Delete</button></td></tr>`).join('')}</tbody></table></div>`;
-  $$('[data-x]', el).forEach(b => b.addEventListener('click', () => { state.alerts = state.alerts.filter(a => a.id !== b.dataset.x); save('alerts'); renderAlerts(); }));
+  el.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th>Alert when</th><th>Status</th><th></th></tr></thead><tbody>${state.alerts.map(a => `<tr><td class="sym"><a href="#stock/${esc(a.symbol)}/overview">${esc(a.symbol)}</a></td><td>${esc(alertText(a))}${phoneList && phoneList.some(p => alertKey({ ...p, symbol: String(p.symbol).toUpperCase() }) === alertKey(a)) ? ' <span class="pill good" title="Also sent to Telegram">📱 Phone</span>' : ''}</td><td>${a.active ? '<span class="pill acc">Watching</span>' : `<span class="pill gold">Triggered ${a.hitAt ? new Date(a.hitAt).toLocaleString() : ''} at ${fmt.money(a.hitPrice)}</span>`}</td><td class="r">${a.active ? '' : `<button class="btn sm ghost" data-re="${a.id}">Re-arm</button>`}<button class="btn sm ghost danger" data-x="${a.id}">Delete</button></td></tr>`).join('')}</tbody></table></div>`;
+  $$('[data-x]', el).forEach(b => b.addEventListener('click', () => { state.alerts = state.alerts.filter(a => a.id !== b.dataset.x); save('alerts'); renderAlerts(); renderPhone(); }));
   $$('[data-re]', el).forEach(b => b.addEventListener('click', () => { const a = state.alerts.find(x => x.id === b.dataset.re); if (a) { a.active = true; delete a.hitAt; save('alerts'); renderAlerts(); } }));
 }
 async function checkAlerts() {

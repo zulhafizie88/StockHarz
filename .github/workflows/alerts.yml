@@ -1,0 +1,47 @@
+name: Price alerts to Telegram
+
+on:
+  schedule:
+    - cron: '*/15 13-21 * * 1-5' # every 15 minutes, 9:00 PM to 5:59 AM Malaysia time (US market hours)
+  push:
+    branches: [main]
+    paths: ['data/alerts.json'] # check right away after you change your alerts
+  workflow_dispatch:
+    inputs:
+      test:
+        description: 'Send a test message to Telegram'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: price-alerts
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check alerts
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.test }}
+        run: node scripts/check-alerts.mjs
+      - name: Save which alerts have fired
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/alerts-state.json 2>/dev/null || true
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Update alert state"
+          git pull --rebase origin main
+          git push
