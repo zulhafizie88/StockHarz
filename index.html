@@ -133,6 +133,18 @@ td .sym{font-family:var(--f-mono);font-weight:600;color:var(--fg)}
 
 .chart-box{position:relative;height:320px}
 .chart-box.sm{height:200px} .chart-box.xs{height:140px}
+.ctools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
+.ctools .seg button{display:inline-flex;align-items:center;gap:5px}
+.ctools svg{width:15px;height:15px;flex:none}
+.ctools .hint{flex-basis:100%;margin:0}
+#pcbox.tools canvas{touch-action:pan-y;cursor:grab}
+#pcbox.tools.dragging canvas{cursor:grabbing}
+#pcbox.tools.m-hline canvas,#pcbox.tools.m-trend canvas{cursor:crosshair;touch-action:none}
+#pcbox.tools.m-erase canvas{cursor:pointer;touch-action:none}
+.card.chart-fs{position:fixed;inset:0;z-index:200;margin:0;border-radius:0;display:flex;flex-direction:column;overflow:auto;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+.card.chart-fs #pcbox{flex:1;height:auto!important;min-height:240px}
+body.has-fs{overflow:hidden}
+@media (max-width:560px){.ctools .seg button span{display:none}.ctools .seg button{padding:7px 11px}.ctools .btn.sm{padding:6px 10px}.card.chart-fs .ctools .hint,.card.chart-fs #pcperf{display:none}.card.chart-fs .card-h{margin-bottom:6px}}
 .news{display:grid;gap:0}
 .news a.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);color:var(--fg)}
 .news a.item:hover{text-decoration:none}
@@ -762,7 +774,33 @@ function mkChart(canvas, cfg) {
 const sma = (arr, n) => arr.map((_, i) => i < n - 1 ? null : arr.slice(i - n + 1, i + 1).reduce((s, x) => s + x, 0) / n);
 function hexA(hex, a) { const h = hex.replace('#', ''); if (h.length !== 6) return hex; const n = parseInt(h, 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
 
-function drawPriceChart(canvas, rows, range, { showSma = true, compact = false, candles = false } = {}) {
+// Draws saved price lines and trend lines on top of the price chart.
+const drawingsPlugin = {
+  id: 'drawings',
+  afterDatasetsDraw(chart) {
+    const T = chart.$tools; if (!T) return;
+    const { ctx, chartArea: a, scales: { y } } = chart;
+    const items = T.items().concat(T.preview ? [T.preview] : []);
+    if (!items.length) return;
+    const col = cssv('--orange') || '#EA6A0F';
+    ctx.save(); ctx.beginPath(); ctx.rect(a.left, a.top, a.right - a.left, a.bottom - a.top); ctx.clip();
+    ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.fillStyle = col; ctx.font = '600 11px ' + (cssv('--f-body') || 'sans-serif');
+    for (const d of items) {
+      ctx.setLineDash(d === T.preview ? [6, 4] : []);
+      if (d.type === 'h') {
+        const py = y.getPixelForValue(d.p); ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+        const lbl = fmt.money(d.p), w = ctx.measureText(lbl).width + 10;
+        ctx.fillRect(a.right - w, py - 9, w, 18); ctx.fillStyle = '#fff'; ctx.fillText(lbl, a.right - w + 5, py + 4); ctx.fillStyle = col;
+      } else {
+        const x1 = T.xOfTime(d.t1), x2 = T.xOfTime(d.t2), y1 = y.getPixelForValue(d.p1), y2 = y.getPixelForValue(d.p2);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        [[x1, y1], [x2, y2]].forEach(([px, py]) => { ctx.beginPath(); ctx.arc(px, py, 3.5, 0, 7); ctx.fill(); });
+      }
+    }
+    ctx.restore();
+  },
+};
+function drawPriceChart(canvas, rows, range, { showSma = true, compact = false, candles = false, tools = false } = {}) {
   let disp = rows;
   if (range === '1D' && rows.length) { const lastDay = rows[rows.length - 1].t.slice(0, 10); disp = rows.filter(r => r.t.startsWith(lastDay)); }
   const closes = rows.map(r => r.c);
@@ -791,19 +829,135 @@ function drawPriceChart(canvas, rows, range, { showSma = true, compact = false, 
   }
   if (!compact) ds.push({ type: 'bar', label: 'Volume', data: disp.map(r => r.v), backgroundColor: hexA(cssv('--muted') || '#888888', .25), yAxisID: 'v', barPercentage: 1, categoryPercentage: 1, grouped: false, order: 5 });
   const maxV = Math.max(...disp.map(r => r.v || 0), 1);
-  return mkChart(canvas, {
-    type: 'line', data: { labels, datasets: ds },
+  const chart = mkChart(canvas, {
+    type: 'line', data: { labels, datasets: ds }, plugins: tools ? [drawingsPlugin] : [],
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
       plugins: { legend: { display: !compact && ds.length > 2, labels: { boxWidth: 12, usePointStyle: true, filter: i => i.text !== 'Volume' && i.text !== 'Range' && i.text !== 'Price' } },
         tooltip: { filter: i => i.dataset.label !== 'Range', callbacks: { label: c => { if (c.dataset.label === 'Volume') return 'Volume ' + fmt.vol(c.parsed.y); if (useCandles && c.dataset.label === 'Price') { const r = disp[c.dataIndex]; return `Open ${fmt.money(r.o)}  High ${fmt.money(r.h)}  Low ${fmt.money(r.l)}  Close ${fmt.money(r.c)}`; } return `${c.dataset.label} ${fmt.money(c.parsed.y)}`; } } } },
       scales: {
         x: { grid: { display: false }, ticks: { maxTicksLimit: compact ? 3 : 7, maxRotation: 0, autoSkipPadding: 16 } },
-        y: { position: 'right', beginAtZero: false, grid: { color: hexA(cssv('--line') || '#cccccc', .7) }, ticks: { callback: v => '$' + Number(v).toLocaleString() } },
+        y: { position: 'right', beginAtZero: false, grid: { color: hexA(cssv('--line') || '#cccccc', .7) }, ticks: { includeBounds: false, callback: v => '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) } },
         ...(compact ? {} : { v: { display: false, max: maxV * 4, beginAtZero: true } }),
       },
     },
   });
+  if (chart) chart.$disp = disp;
+  return chart;
+}
+
+// Zoom, pan, drawing tools and full screen for the big price chart.
+function chartTools(chart, sym, root, getTool) {
+  const disp = chart.$disp, n = disp.length, canvas = chart.canvas, box = canvas.parentElement;
+  const KEY = 'draw:' + sym;
+  const items = () => store.get(KEY, []);
+  const saveItems = a => store.set(KEY, a.slice(-60));
+  const ms = disp.map(r => Date.parse(r.t.length > 10 ? r.t.replace(' ', 'T') : r.t));
+  const step = n > 1 ? (ms[n - 1] - ms[0]) / (n - 1) : 1;
+  const idxOfTime = t => {
+    const v = Date.parse(t.length > 10 ? t.replace(' ', 'T') : t);
+    if (v <= ms[0]) return (v - ms[0]) / step;
+    if (v >= ms[n - 1]) return n - 1 + (v - ms[n - 1]) / step;
+    let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (ms[m] <= v) lo = m; else hi = m; }
+    return lo + (v - ms[lo]) / ((ms[hi] - ms[lo]) || 1);
+  };
+  const x = chart.scales.x;
+  const pxOfIdx = i => { const a = x.getPixelForValue(0), b = x.getPixelForValue(1); return a + (b - a) * i; };
+  const idxOfPx = px => { const a = x.getPixelForValue(0), b = x.getPixelForValue(1); return (px - a) / ((b - a) || 1); };
+  const timeOfPx = px => disp[Math.max(0, Math.min(n - 1, Math.round(idxOfPx(px))))].t;
+  const T = chart.$tools = { items, preview: null, xOfTime: t => pxOfIdx(idxOfTime(t)) };
+  let lo = 0, hi = n - 1;
+  const minSpan = Math.min(n - 1, 10);
+  const apply = () => {
+    const full = lo <= 0 && hi >= n - 1;
+    chart.options.scales.x.min = full ? undefined : Math.round(lo);
+    chart.options.scales.x.max = full ? undefined : Math.round(hi);
+    if (full) { chart.options.scales.y.min = undefined; chart.options.scales.y.max = undefined; }
+    else {
+      const vis = disp.slice(Math.max(0, Math.floor(lo)), Math.min(n, Math.ceil(hi) + 1));
+      let mn = Math.min(...vis.map(r => isNum(r.l) ? r.l : r.c)), mx = Math.max(...vis.map(r => isNum(r.h) ? r.h : r.c));
+      for (const d of items()) if (d.type === 'h' && d.p > mn - (mx - mn) && d.p < mx + (mx - mn)) { mn = Math.min(mn, d.p); mx = Math.max(mx, d.p); }
+      const pad = (mx - mn) * 0.06 || mx * 0.02;
+      chart.options.scales.y.min = mn - pad; chart.options.scales.y.max = mx + pad;
+    }
+    chart.update('none');
+  };
+  const zoomAt = (factor, centerIdx) => {
+    const span = hi - lo, ns = Math.max(minSpan, Math.min(n - 1, span * factor));
+    const r = span ? (centerIdx - lo) / span : .5;
+    lo = centerIdx - ns * r; hi = lo + ns;
+    if (lo < 0) { hi -= lo; lo = 0; } if (hi > n - 1) { lo -= hi - (n - 1); hi = n - 1; } lo = Math.max(0, lo);
+    apply();
+  };
+  const panBy = dIdx => { const span = hi - lo; lo = Math.max(0, Math.min(n - 1 - span, lo + dIdx)); hi = lo + span; apply(); };
+  T.reset = () => { lo = 0; hi = n - 1; apply(); };
+  T.redraw = () => apply();
+
+  canvas.addEventListener('wheel', e => {
+    if (getTool() !== 'pan') return;
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { panBy(e.deltaX / ((r.width / ((hi - lo) || 1)) || 1)); return; }
+    zoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, idxOfPx(e.clientX - r.left));
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => { if (getTool() === 'pan') T.reset(); });
+
+  const ptrs = new Map(); let drag = null, pinch = null, pendingTrend = null;
+  const pos = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  const inArea = p => { const a = chart.chartArea; return p.x >= a.left && p.x <= a.right && p.y >= a.top && p.y <= a.bottom; };
+  const priceAt = py => chart.scales.y.getValueForPixel(py);
+  const distToSeg = (p, x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1, l = dx * dx + dy * dy; const t = l ? Math.max(0, Math.min(1, ((p.x - x1) * dx + (p.y - y1) * dy) / l)) : 0; return Math.hypot(p.x - x1 - t * dx, p.y - y1 - t * dy); };
+  canvas.addEventListener('pointerdown', e => {
+    const p = pos(e), tool = getTool();
+    ptrs.set(e.pointerId, p);
+    if (tool === 'pan') {
+      if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.abs(a.x - b.x) || 1, lo, hi, c: idxOfPx((a.x + b.x) / 2) }; drag = null; }
+      else { drag = { x: p.x, lo, hi, moved: false }; }
+      return;
+    }
+    if (!inArea(p)) return;
+    canvas.setPointerCapture(e.pointerId); e.preventDefault();
+    if (tool === 'hline') { const a = items(); a.push({ type: 'h', p: +priceAt(p.y).toFixed(2) }); saveItems(a); chart.update('none'); toast('Price line added'); }
+    else if (tool === 'erase') {
+      const a = items(); let best = -1, bd = 12;
+      a.forEach((d, i) => { const dist = d.type === 'h' ? Math.abs(chart.scales.y.getPixelForValue(d.p) - p.y) : distToSeg(p, T.xOfTime(d.t1), chart.scales.y.getPixelForValue(d.p1), T.xOfTime(d.t2), chart.scales.y.getPixelForValue(d.p2)); if (dist < bd) { bd = dist; best = i; } });
+      if (best >= 0) { a.splice(best, 1); saveItems(a); chart.update('none'); toast('Line deleted'); } else toast('No line there. Tap right on a line.');
+    } else if (tool === 'trend') {
+      const pt = { t: timeOfPx(p.x), p: +priceAt(p.y).toFixed(2) };
+      if (pendingTrend) { finishTrend(pendingTrend, pt); pendingTrend = null; }
+      else { drag = { start: pt, sx: p.x, sy: p.y }; T.preview = { type: 't', t1: pt.t, p1: pt.p, t2: pt.t, p2: pt.p }; chart.update('none'); }
+    }
+  });
+  const finishTrend = (a, b) => { T.preview = null; if (a.t === b.t && a.p === b.p) { chart.update('none'); return; } const arr = items(); arr.push({ type: 't', t1: a.t, p1: a.p, t2: b.t, p2: b.p }); saveItems(arr); chart.update('none'); toast('Trend line added'); };
+  canvas.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId)) return;
+    const p = pos(e); ptrs.set(e.pointerId, p);
+    const tool = getTool();
+    if (tool === 'pan') {
+      if (pinch && ptrs.size >= 2) { const [a, b] = [...ptrs.values()]; const d = Math.abs(a.x - b.x) || 1; lo = pinch.lo; hi = pinch.hi; zoomAt(pinch.d / d, pinch.c); return; }
+      if (drag && e.pointerType !== 'touch' || drag && Math.abs(p.x - drag.x) > 6) {
+        if (!drag.moved && Math.abs(p.x - drag.x) > 4) { drag.moved = true; box.classList.add('dragging'); try { canvas.setPointerCapture(e.pointerId); } catch {} }
+        if (drag.moved) { const span = drag.hi - drag.lo, pxPerIdx = (chart.chartArea.right - chart.chartArea.left) / (span || 1); lo = drag.lo; hi = drag.hi; panBy(-(p.x - drag.x) / pxPerIdx); }
+      }
+      return;
+    }
+    if (tool === 'trend' && drag && drag.start) { T.preview.t2 = timeOfPx(Math.max(chart.chartArea.left, Math.min(chart.chartArea.right, p.x))); T.preview.p2 = +priceAt(p.y).toFixed(2); chart.update('none'); }
+  });
+  const end = e => {
+    const p = ptrs.get(e.pointerId); ptrs.delete(e.pointerId);
+    if (ptrs.size < 2) pinch = null;
+    box.classList.remove('dragging');
+    if (getTool() === 'trend' && drag && drag.start && p) {
+      if (Math.hypot(p.x - drag.sx, p.y - drag.sy) < 8) { pendingTrend = drag.start; T.preview = null; chart.update('none'); toast('Now tap the second point'); }
+      else finishTrend(drag.start, { t: T.preview.t2, p: T.preview.p2 });
+    }
+    if (!ptrs.size) drag = null;
+  };
+  canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+  T.cancelPending = () => { pendingTrend = null; T.preview = null; drag = null; chart.update('none'); };
+  T.undo = () => { const a = items(); if (!a.length) return toast('No lines to undo.'); a.pop(); saveItems(a); chart.update('none'); };
+  T.clear = () => { if (!items().length) return toast('No lines to clear.'); saveItems([]); chart.update('none'); toast('All lines cleared'); };
+  return T;
 }
 
 /* ============ rendering helpers ============ */
@@ -1199,10 +1353,28 @@ function pageStock(s, tab) {
 
 function chartBlock(s, initial = '1Y', compact = false) {
   const style = store.get('chartStyle', 'candles');
-  return `<div class="card-h"><h2>${compact ? 'Price' : 'Price chart'}</h2>${compact ? '' : `<div class="seg" role="group" aria-label="Chart style"><button type="button" data-st="candles" class="${style === 'candles' ? 'on' : ''}">Candles</button><button type="button" data-st="line" class="${style === 'line' ? 'on' : ''}">Line</button></div><span class="spacer"></span>`}<div class="seg" role="group" aria-label="Chart range">${Object.keys(RANGES).map(r => `<button type="button" data-r="${r}" class="${r === initial ? 'on' : ''}">${r}</button>`).join('')}</div></div><div class="chart-box ${compact ? 'sm' : ''}" id="pcbox"><canvas id="pc"></canvas></div><div id="pcperf" class="small muted" style="margin-top:8px"></div>`;
+  return `<div class="card-h"><h2>${compact ? 'Price' : 'Price chart'}</h2>${compact ? '' : `<div class="seg" role="group" aria-label="Chart style"><button type="button" data-st="candles" class="${style === 'candles' ? 'on' : ''}">Candles</button><button type="button" data-st="line" class="${style === 'line' ? 'on' : ''}">Line</button></div><span class="spacer"></span>`}<div class="seg" role="group" aria-label="Chart range">${Object.keys(RANGES).map(r => `<button type="button" data-r="${r}" class="${r === initial ? 'on' : ''}">${r}</button>`).join('')}</div></div>${compact ? '' : chartToolbar()}<div class="chart-box ${compact ? 'sm' : ''}" id="pcbox"><canvas id="pc"></canvas></div><div id="pcperf" class="small muted" style="margin-top:8px"></div>`;
+}
+const CI = {
+  pan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>',
+  hline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>',
+  trend: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19L20 5"/><circle cx="4" cy="19" r="2" fill="currentColor"/><circle cx="20" cy="5" r="2" fill="currentColor"/></svg>',
+  erase: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H9L4 15l10-10 6 6-7 7"/></svg>',
+  fs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+};
+const TOOL_HINT = { pan: 'Scroll or pinch to zoom, drag to move. Double-click or Reset to go back.', hline: 'Tap the chart to add a horizontal price line.', trend: 'Drag across the chart (or tap two points) to draw a trend line.', erase: 'Tap a line to delete it.' };
+function chartToolbar() {
+  return `<div class="ctools" id="ctools"><div class="seg" role="group" aria-label="Chart tool">
+    <button type="button" data-tool="pan" class="on" title="Zoom and move">${CI.pan}<span>Zoom</span></button>
+    <button type="button" data-tool="hline" title="Horizontal price line">${CI.hline}<span>Price line</span></button>
+    <button type="button" data-tool="trend" title="Trend line">${CI.trend}<span>Trend line</span></button>
+    <button type="button" data-tool="erase" title="Delete a line">${CI.erase}<span>Erase</span></button></div>
+    <button type="button" class="btn sm" id="cundo">Undo</button><button type="button" class="btn sm" id="cclear">Clear lines</button><button type="button" class="btn sm" id="creset">Reset zoom</button>
+    <span class="spacer"></span><button type="button" class="btn sm" id="cfs" aria-pressed="false">${CI.fs}<span>Full screen</span></button>
+    <p class="hint small muted" id="chint">${TOOL_HINT.pan}</p></div>`;
 }
 function wireChart(s, root, initial = '1Y', compact = false) {
-  let cur = null;
+  let cur = null, tool = 'pan', T = null;
   const draw = async r => {
     $$('[data-r]', root).forEach(b => b.classList.toggle('on', b.dataset.r === r));
     const box = $('#pcbox', root);
@@ -1212,7 +1384,8 @@ function wireChart(s, root, initial = '1Y', compact = false) {
       const rows = await D.candles(s, r);
       if (!box.isConnected) return;
       if (!rows.length) { box.innerHTML = '<div class="empty">No price history.</div>'; return; }
-      cur = drawPriceChart($('#pc', root), rows, r, { compact, candles: !compact && store.get('chartStyle', 'candles') === 'candles' });
+      cur = drawPriceChart($('#pc', root), rows, r, { compact, tools: !compact, candles: !compact && store.get('chartStyle', 'candles') === 'candles' });
+      if (!compact && cur) { box.className = 'chart-box tools m-' + tool; T = chartTools(cur, s, root, () => tool); }
       const showRows = r === '1D' ? rows.filter(x => x.t.startsWith(rows[rows.length - 1].t.slice(0, 10))) : rows.slice(-(RANGES[r].show || rows.length));
       const a = showRows[0].c, b = showRows[showRows.length - 1].c;
       $('#pcperf', root).innerHTML = `${r} change: <span class="${cls(b - a)} num">${fmt.pct((b - a) / a * 100, 2, true)}</span> · from ${esc(showRows[0].t.slice(0, 10))}${!compact && ['6M', '1Y', '5Y'].includes(r) ? ' · Gold line is the 50-period average, dashed line the 200-period average.' : ''}`;
@@ -1221,6 +1394,31 @@ function wireChart(s, root, initial = '1Y', compact = false) {
   let last = initial;
   $$('[data-r]', root).forEach(b => b.addEventListener('click', () => { last = b.dataset.r; draw(last); }));
   $$('[data-st]', root).forEach(b => b.addEventListener('click', () => { store.set('chartStyle', b.dataset.st); $$('[data-st]', root).forEach(x => x.classList.toggle('on', x === b)); draw(last); }));
+  if (!compact) {
+    $$('[data-tool]', root).forEach(b => b.addEventListener('click', () => {
+      tool = b.dataset.tool; if (T) T.cancelPending();
+      $$('[data-tool]', root).forEach(x => x.classList.toggle('on', x === b));
+      $('#pcbox', root).className = 'chart-box tools m-' + tool; $('#chint', root).textContent = TOOL_HINT[tool];
+    }));
+    $('#cundo', root).addEventListener('click', () => T && T.undo());
+    $('#cclear', root).addEventListener('click', () => T && T.clear());
+    $('#creset', root).addEventListener('click', () => T && T.reset());
+    const fsBtn = $('#cfs', root);
+    const setFs = on => {
+      root.classList.toggle('chart-fs', on); document.body.classList.toggle('has-fs', on);
+      fsBtn.setAttribute('aria-pressed', on); $('span', fsBtn).textContent = on ? 'Exit full screen' : 'Full screen';
+      if (cur) setTimeout(() => cur.resize(), 60);
+    };
+    fsBtn.addEventListener('click', async () => {
+      const on = !root.classList.contains('chart-fs');
+      setFs(on);
+      try { if (on && root.requestFullscreen) await root.requestFullscreen(); else if (!on && document.fullscreenElement) await document.exitFullscreen(); } catch {}
+      try { if (on && screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch {}
+    });
+    document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && root.classList.contains('chart-fs') && root.isConnected) setFs(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.isConnected && root.classList.contains('chart-fs')) setFs(false); });
+    window.addEventListener('hashchange', () => { document.body.classList.remove('has-fs'); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); }, { once: true });
+  }
   draw(initial);
 }
 
