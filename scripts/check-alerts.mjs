@@ -41,7 +41,15 @@ if (!TG || !CHAT) {
   process.exit(TEST ? 1 : 0);
 }
 
-const list = (readJson(alertsFile, { alerts: [] }).alerts || [])
+// Reads data/alerts.json. If two lists were pasted one after the other, it merges them instead of failing.
+function readAlerts() {
+  let text; try { text = fs.readFileSync(alertsFile, 'utf8'); } catch { return []; }
+  try { return JSON.parse(text).alerts || []; } catch {}
+  try { return JSON.parse('[' + text.trim().replace(/}\s*{/g, '},{') + ']').flatMap(o => (o && o.alerts) || []); } catch {}
+  console.log('::error::data/alerts.json is not valid. Copy the alerts from StockHarz again and paste over everything in the file.');
+  process.exit(1);
+}
+const list = readAlerts()
   .filter(a => a && /^[A-Z0-9.\-]{1,12}$/.test(String(a.symbol || '').toUpperCase()) && ['above', 'below', 'up', 'down'].includes(a.type) && isFinite(+a.value))
   .map(a => ({ ...a, symbol: String(a.symbol).toUpperCase(), value: +a.value }));
 

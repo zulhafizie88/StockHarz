@@ -1110,7 +1110,7 @@ let phoneList = null;
 const alertKey = a => `${a.symbol}|${a.type}|${+a.value}`;
 async function loadPhoneAlerts() {
   if (phoneList) return phoneList;
-  try { const r = await fetch('data/alerts.json?t=' + Date.now(), { cache: 'no-store' }); phoneList = r.ok ? ((await r.json()).alerts || []) : []; } catch { phoneList = []; }
+  try { const r = await fetch('data/alerts.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) phoneList = []; else { const t = await r.text(); try { phoneList = JSON.parse(t).alerts || []; } catch { try { phoneList = JSON.parse('[' + t.trim().replace(/}\s*{/g, '},{') + ']').flatMap(o => (o && o.alerts) || []); } catch { phoneList = []; } } } } catch { phoneList = []; }
   return phoneList;
 }
 function phoneJson() {
