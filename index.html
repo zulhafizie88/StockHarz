@@ -137,6 +137,9 @@ td .sym{font-family:var(--f-mono);font-weight:600;color:var(--fg)}
 .ctools .seg button{display:inline-flex;align-items:center;gap:5px}
 .ctools svg{width:15px;height:15px;flex:none}
 .ctools .hint{flex-basis:100%;margin:0}
+.indrow{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip.ind{font-size:12px;padding:4px 10px;cursor:pointer}
+.chip.ind.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 #pcbox.tools canvas{touch-action:pan-y;cursor:grab}
 #pcbox.tools.dragging canvas{cursor:grabbing}
 #pcbox.tools.m-hline canvas,#pcbox.tools.m-trend canvas{cursor:crosshair;touch-action:none}
@@ -771,15 +774,47 @@ function mkChart(canvas, cfg) {
   Chart.defaults.borderColor = cssv('--line');
   const c = new Chart(canvas, cfg); charts.push(c); return c;
 }
+const ema = (arr, n) => { const k = 2 / (n + 1); let prev = null, cnt = 0, sum = 0; return arr.map(v => { if (!isNum(v)) return null; if (prev == null) { sum += v; cnt++; if (cnt < n) return null; prev = sum / n; return prev; } prev = v * k + prev * (1 - k); return prev; }); };
+function rsi(arr, n = 14) {
+  const out = arr.map(() => null); let g = 0, l = 0;
+  for (let i = 1; i < arr.length; i++) {
+    const d = arr[i] - arr[i - 1], up = Math.max(d, 0), dn = Math.max(-d, 0);
+    if (i <= n) { g += up; l += dn; if (i === n) { g /= n; l /= n; out[i] = l ? 100 - 100 / (1 + g / l) : 100; } }
+    else { g = (g * (n - 1) + up) / n; l = (l * (n - 1) + dn) / n; out[i] = l ? 100 - 100 / (1 + g / l) : 100; }
+  }
+  return out;
+}
+function bollinger(arr, n = 20, k = 2) {
+  const mid = sma(arr, n);
+  const sd = arr.map((_, i) => { if (mid[i] == null) return null; let s2 = 0; for (let j = i - n + 1; j <= i; j++) s2 += (arr[j] - mid[i]) ** 2; return Math.sqrt(s2 / n); });
+  return { mid, up: mid.map((m, i) => m == null ? null : m + k * sd[i]), lo: mid.map((m, i) => m == null ? null : m - k * sd[i]) };
+}
+function macd(arr) {
+  const a = ema(arr, 12), b = ema(arr, 26), line = arr.map((_, i) => a[i] != null && b[i] != null ? a[i] - b[i] : null);
+  const first = line.findIndex(v => v != null), sig = first < 0 ? line.map(() => null) : line.slice(0, first).map(() => null).concat(ema(line.slice(first), 9));
+  return { line, sig, hist: line.map((v, i) => v != null && sig[i] != null ? v - sig[i] : null) };
+}
+const INDICATORS = [['sma20', 'SMA 20'], ['sma50', 'SMA 50'], ['sma200', 'SMA 200'], ['ema20', 'EMA 20'], ['boll', 'Bollinger'], ['vol', 'Volume'], ['rsi', 'RSI 14'], ['macd', 'MACD']];
+const getInd = () => { const v = store.get('indicators', null); return Array.isArray(v) ? v : ['sma50', 'sma200', 'vol']; };
 const sma = (arr, n) => arr.map((_, i) => i < n - 1 ? null : arr.slice(i - n + 1, i + 1).reduce((s, x) => s + x, 0) / n);
 function hexA(hex, a) { const h = hex.replace('#', ''); if (h.length !== 6) return hex; const n = parseInt(h, 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
 
+// Names the lower panes (Volume, RSI, MACD) in their top-left corner.
+const paneLabelsPlugin = {
+  id: 'paneLabels',
+  afterDraw(chart) {
+    const { ctx, chartArea: a } = chart;
+    ctx.save(); ctx.font = '600 10px ' + (cssv('--f-body') || 'sans-serif'); ctx.fillStyle = cssv('--muted'); ctx.textBaseline = 'top';
+    for (const sc of Object.values(chart.scales)) if (sc.options.paneLabel && sc.options.stack) ctx.fillText(sc.options.paneLabel, a.left + 4, sc.top + 3);
+    ctx.restore();
+  },
+};
 // Draws saved price lines and trend lines on top of the price chart.
 const drawingsPlugin = {
   id: 'drawings',
   afterDatasetsDraw(chart) {
     const T = chart.$tools; if (!T) return;
-    const { ctx, chartArea: a, scales: { y } } = chart;
+    const { ctx, scales: { y } } = chart; const a = { left: chart.chartArea.left, right: chart.chartArea.right, top: y.top, bottom: y.bottom };
     const items = T.items().concat(T.preview ? [T.preview] : []);
     if (!items.length) return;
     const col = cssv('--orange') || '#EA6A0F';
@@ -823,22 +858,53 @@ function drawPriceChart(canvas, rows, range, { showSma = true, compact = false, 
     ds[0] = { type: 'bar', label: 'Price', data: disp.map(r => { const lo = Math.min(r.o, r.c), hi = Math.max(r.o, r.c); return [lo, hi - lo < tiny ? lo + tiny : hi]; }), backgroundColor: colors, borderWidth: 0, barPercentage: 0.8, categoryPercentage: 0.9, grouped: false, yAxisID: 'y', order: 1 };
     ds.splice(1, 0, { type: 'bar', label: 'Range', data: disp.map(r => [r.l, r.h]), backgroundColor: colors, barThickness: 1, grouped: false, yAxisID: 'y', order: 2 });
   }
-  if (showSma && !compact && ['6M', '1Y', '5Y'].includes(range)) {
-    ds.push({ label: '50-period average', data: s50.slice(start), borderColor: cssv('--gold'), borderWidth: 1.4, pointRadius: 0, fill: false, yAxisID: 'y' });
-    ds.push({ label: '200-period average', data: s200.slice(start), borderColor: cssv('--accent'), borderWidth: 1.4, pointRadius: 0, fill: false, borderDash: [5, 4], yAxisID: 'y' });
+  // Indicators are computed on the full history, then cut to the visible range, so averages are right from the first bar.
+  const ind = compact ? [] : (tools ? getInd() : (showSma ? ['sma50', 'sma200', 'vol'] : ['vol']));
+  const on = k => ind.includes(k);
+  const base = range === '1D' ? disp.map(r => r.c) : closes, off = range === '1D' ? 0 : start;
+  const cut = a => a.slice(off, off + disp.length);
+  const line = (label, data, color, extra = {}) => ds.push({ label, data: cut(data), borderColor: color, borderWidth: 1.4, pointRadius: 0, fill: false, yAxisID: 'y', spanGaps: true, ...extra });
+  if (on('sma20')) line('SMA 20', sma(base, 20), cssv('--purple'));
+  if (on('sma50')) line('SMA 50', range === '1D' ? sma(base, 50) : s50, cssv('--gold'));
+  if (on('sma200')) line('SMA 200', range === '1D' ? sma(base, 200) : s200, cssv('--accent'), { borderDash: [5, 4] });
+  if (on('ema20')) line('EMA 20', ema(base, 20), cssv('--teal'));
+  if (on('boll')) {
+    const bb = bollinger(base, 20, 2), bc = cssv('--muted') || '#888888';
+    line('Bollinger (20, 2)', bb.up, hexA(bc, .8), { borderWidth: 1 });
+    line('Bollinger lower', bb.lo, hexA(bc, .8), { borderWidth: 1, fill: '-1', backgroundColor: hexA(bc, .08), hideLegend: true });
+    line('Bollinger middle', bb.mid, hexA(bc, .6), { borderWidth: 1, borderDash: [2, 3], hideLegend: true });
   }
-  if (!compact) ds.push({ type: 'bar', label: 'Volume', data: disp.map(r => r.v), backgroundColor: hexA(cssv('--muted') || '#888888', .25), yAxisID: 'v', barPercentage: 1, categoryPercentage: 1, grouped: false, order: 5 });
+  const panes = !compact && (on('rsi') || on('macd'));
+  if (!compact && on('vol')) ds.push({ type: 'bar', label: 'Volume', data: disp.map(r => r.v), backgroundColor: hexA(cssv('--muted') || '#888888', .25), yAxisID: 'v', barPercentage: 1, categoryPercentage: 1, grouped: false, order: 5, hideLegend: true });
+  if (on('rsi')) {
+    ds.push({ label: 'RSI 14', data: cut(rsi(base, 14)), borderColor: cssv('--purple'), borderWidth: 1.4, pointRadius: 0, fill: false, yAxisID: 'rsi', spanGaps: true, hideLegend: true });
+    ds.push({ label: '_rsi70', data: disp.map(() => 70), borderColor: hexA(cssv('--down') || '#cc3333', .5), borderWidth: 1, borderDash: [3, 3], pointRadius: 0, yAxisID: 'rsi', hideLegend: true, noTip: true });
+    ds.push({ label: '_rsi30', data: disp.map(() => 30), borderColor: hexA(cssv('--up') || '#22aa55', .5), borderWidth: 1, borderDash: [3, 3], pointRadius: 0, yAxisID: 'rsi', hideLegend: true, noTip: true });
+  }
+  if (on('macd')) {
+    const m = macd(base), upC = cssv('--up'), dnC = cssv('--down');
+    const h = cut(m.hist);
+    ds.push({ type: 'bar', label: 'MACD histogram', data: h, backgroundColor: h.map(v => hexA(v >= 0 ? upC : dnC, .5)), yAxisID: 'macd', barPercentage: 1, categoryPercentage: 1, grouped: false, hideLegend: true, order: 4 });
+    ds.push({ label: 'MACD', data: cut(m.line), borderColor: cssv('--accent'), borderWidth: 1.3, pointRadius: 0, yAxisID: 'macd', spanGaps: true, hideLegend: true });
+    ds.push({ label: 'Signal', data: cut(m.sig), borderColor: cssv('--orange'), borderWidth: 1.3, pointRadius: 0, yAxisID: 'macd', spanGaps: true, hideLegend: true });
+  }
   const maxV = Math.max(...disp.map(r => r.v || 0), 1);
+  const gridC = hexA(cssv('--line') || '#cccccc', .7);
+  const paneScales = panes ? {
+    ...(on('vol') ? { v: { position: 'right', stack: 'p', stackWeight: 0.7, offset: true, beginAtZero: true, grid: { color: gridC }, ticks: { maxTicksLimit: 2, callback: v => fmt.vol(v) }, paneLabel: 'Volume' } } : {}),
+    ...(on('rsi') ? { rsi: { position: 'right', stack: 'p', stackWeight: 1, offset: true, min: 0, max: 100, grid: { color: gridC }, afterBuildTicks: sc => { sc.ticks = [{ value: 30 }, { value: 70 }]; }, ticks: { callback: v => v }, paneLabel: 'RSI 14' } } : {}),
+    ...(on('macd') ? { macd: { position: 'right', stack: 'p', stackWeight: 1, offset: true, grid: { color: gridC }, ticks: { maxTicksLimit: 3, callback: v => Math.abs(v) >= 10 ? Math.round(v) : Number(v).toFixed(1) }, paneLabel: 'MACD' } } : {}),
+  } : (!compact && on('vol') ? { v: { display: false, max: maxV * 4, beginAtZero: true } } : {});
   const chart = mkChart(canvas, {
-    type: 'line', data: { labels, datasets: ds }, plugins: tools ? [drawingsPlugin] : [],
+    type: 'line', data: { labels, datasets: ds }, plugins: tools ? [drawingsPlugin, paneLabelsPlugin] : [],
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: !compact && ds.length > 2, labels: { boxWidth: 12, usePointStyle: true, filter: i => i.text !== 'Volume' && i.text !== 'Range' && i.text !== 'Price' } },
-        tooltip: { filter: i => i.dataset.label !== 'Range', callbacks: { label: c => { if (c.dataset.label === 'Volume') return 'Volume ' + fmt.vol(c.parsed.y); if (useCandles && c.dataset.label === 'Price') { const r = disp[c.dataIndex]; return `Open ${fmt.money(r.o)}  High ${fmt.money(r.h)}  Low ${fmt.money(r.l)}  Close ${fmt.money(r.c)}`; } return `${c.dataset.label} ${fmt.money(c.parsed.y)}`; } } } },
+      plugins: { legend: { display: !compact && ds.some(d => d.yAxisID === 'y' && !d.hideLegend && !['Price', 'Range'].includes(d.label)), labels: { boxWidth: 12, usePointStyle: true, filter: (i, data) => { const d = data.datasets[i.datasetIndex]; return d.yAxisID === 'y' && !d.hideLegend && i.text !== 'Range' && i.text !== 'Price'; } } },
+        tooltip: { filter: i => i.dataset.label !== 'Range' && !i.dataset.noTip && i.parsed.y != null, callbacks: { label: c => { if (c.dataset.label === 'Volume') return 'Volume ' + fmt.vol(c.parsed.y); if (c.dataset.yAxisID === 'rsi') return 'RSI ' + c.parsed.y.toFixed(1); if (c.dataset.yAxisID === 'macd') return `${c.dataset.label} ${c.parsed.y.toFixed(3)}`; if (useCandles && c.dataset.label === 'Price') { const r = disp[c.dataIndex]; return `Open ${fmt.money(r.o)}  High ${fmt.money(r.h)}  Low ${fmt.money(r.l)}  Close ${fmt.money(r.c)}`; } return `${c.dataset.label} ${fmt.money(c.parsed.y)}`; } } } },
       scales: {
         x: { grid: { display: false }, ticks: { maxTicksLimit: compact ? 3 : 7, maxRotation: 0, autoSkipPadding: 16 } },
-        y: { position: 'right', beginAtZero: false, grid: { color: hexA(cssv('--line') || '#cccccc', .7) }, ticks: { includeBounds: false, callback: v => '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) } },
-        ...(compact ? {} : { v: { display: false, max: maxV * 4, beginAtZero: true } }),
+        y: { position: 'right', beginAtZero: false, ...(panes ? { stack: 'p', stackWeight: 3.2, offset: true } : {}), grid: { color: hexA(cssv('--line') || '#cccccc', .7) }, ticks: { includeBounds: false, callback: v => '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) } },
+        ...paneScales,
       },
     },
   });
@@ -847,7 +913,7 @@ function drawPriceChart(canvas, rows, range, { showSma = true, compact = false, 
 }
 
 // Zoom, pan, drawing tools and full screen for the big price chart.
-function chartTools(chart, sym, root, getTool) {
+function chartTools(chart, sym, root, getTool, view) {
   const disp = chart.$disp, n = disp.length, canvas = chart.canvas, box = canvas.parentElement;
   const KEY = 'draw:' + sym;
   const items = () => store.get(KEY, []);
@@ -891,6 +957,8 @@ function chartTools(chart, sym, root, getTool) {
   };
   const panBy = dIdx => { const span = hi - lo; lo = Math.max(0, Math.min(n - 1 - span, lo + dIdx)); hi = lo + span; apply(); };
   T.reset = () => { lo = 0; hi = n - 1; apply(); };
+  T.view = () => [lo, hi];
+  if (view && view[1] <= n - 1 && view[1] > view[0]) { [lo, hi] = view; apply(); }
   T.redraw = () => apply();
 
   canvas.addEventListener('wheel', e => {
@@ -904,7 +972,7 @@ function chartTools(chart, sym, root, getTool) {
 
   const ptrs = new Map(); let drag = null, pinch = null, pendingTrend = null;
   const pos = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-  const inArea = p => { const a = chart.chartArea; return p.x >= a.left && p.x <= a.right && p.y >= a.top && p.y <= a.bottom; };
+  const inArea = p => { const a = chart.chartArea, Y = chart.scales.y; return p.x >= a.left && p.x <= a.right && p.y >= Y.top && p.y <= Y.bottom; };
   const priceAt = py => chart.scales.y.getValueForPixel(py);
   const distToSeg = (p, x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1, l = dx * dx + dy * dy; const t = l ? Math.max(0, Math.min(1, ((p.x - x1) * dx + (p.y - y1) * dy) / l)) : 0; return Math.hypot(p.x - x1 - t * dx, p.y - y1 - t * dy); };
   canvas.addEventListener('pointerdown', e => {
@@ -1371,11 +1439,13 @@ function chartToolbar() {
     <button type="button" data-tool="erase" title="Delete a line">${CI.erase}<span>Erase</span></button></div>
     <button type="button" class="btn sm" id="cundo">Undo</button><button type="button" class="btn sm" id="cclear">Clear lines</button><button type="button" class="btn sm" id="creset">Reset zoom</button>
     <span class="spacer"></span><button type="button" class="btn sm" id="cfs" aria-pressed="false">${CI.fs}<span>Full screen</span></button>
-    <p class="hint small muted" id="chint">${TOOL_HINT.pan}</p></div>`;
+    <p class="hint small muted" id="chint">${TOOL_HINT.pan}</p>
+    <div class="indrow" role="group" aria-label="Indicators"><span class="small muted">Indicators</span>${INDICATORS.map(([k, n]) => `<button type="button" class="chip ind${getInd().includes(k) ? ' on' : ''}" data-ind="${k}" aria-pressed="${getInd().includes(k)}">${n}</button>`).join('')}</div></div>`;
 }
 function wireChart(s, root, initial = '1Y', compact = false) {
   let cur = null, tool = 'pan', T = null;
-  const draw = async r => {
+  const draw = async (r, keepView) => {
+    const view = keepView && T ? T.view() : null;
     $$('[data-r]', root).forEach(b => b.classList.toggle('on', b.dataset.r === r));
     const box = $('#pcbox', root);
     if (cur) { cur.destroy(); cur = null; }
@@ -1384,11 +1454,12 @@ function wireChart(s, root, initial = '1Y', compact = false) {
       const rows = await D.candles(s, r);
       if (!box.isConnected) return;
       if (!rows.length) { box.innerHTML = '<div class="empty">No price history.</div>'; return; }
+      if (!compact) box.style.height = (getInd().includes('rsi') || getInd().includes('macd') ? 540 : 420) + 'px';
       cur = drawPriceChart($('#pc', root), rows, r, { compact, tools: !compact, candles: !compact && store.get('chartStyle', 'candles') === 'candles' });
-      if (!compact && cur) { box.className = 'chart-box tools m-' + tool; T = chartTools(cur, s, root, () => tool); }
+      if (!compact && cur) { box.className = 'chart-box tools m-' + tool; T = chartTools(cur, s, root, () => tool, view); }
       const showRows = r === '1D' ? rows.filter(x => x.t.startsWith(rows[rows.length - 1].t.slice(0, 10))) : rows.slice(-(RANGES[r].show || rows.length));
       const a = showRows[0].c, b = showRows[showRows.length - 1].c;
-      $('#pcperf', root).innerHTML = `${r} change: <span class="${cls(b - a)} num">${fmt.pct((b - a) / a * 100, 2, true)}</span> · from ${esc(showRows[0].t.slice(0, 10))}${!compact && ['6M', '1Y', '5Y'].includes(r) ? ' · Gold line is the 50-period average, dashed line the 200-period average.' : ''}`;
+      $('#pcperf', root).innerHTML = `${r} change: <span class="${cls(b - a)} num">${fmt.pct((b - a) / a * 100, 2, true)}</span> · from ${esc(showRows[0].t.slice(0, 10))}`;
     } catch (e) { if (box.isConnected) box.innerHTML = errBox(e); }
   };
   let last = initial;
@@ -1399,6 +1470,10 @@ function wireChart(s, root, initial = '1Y', compact = false) {
       tool = b.dataset.tool; if (T) T.cancelPending();
       $$('[data-tool]', root).forEach(x => x.classList.toggle('on', x === b));
       $('#pcbox', root).className = 'chart-box tools m-' + tool; $('#chint', root).textContent = TOOL_HINT[tool];
+    }));
+    $$('[data-ind]', root).forEach(b => b.addEventListener('click', () => {
+      const k = b.dataset.ind, cur2 = getInd(), next = cur2.includes(k) ? cur2.filter(x => x !== k) : cur2.concat(k);
+      store.set('indicators', next); b.classList.toggle('on', next.includes(k)); b.setAttribute('aria-pressed', next.includes(k)); draw(last, true);
     }));
     $('#cundo', root).addEventListener('click', () => T && T.undo());
     $('#cclear', root).addEventListener('click', () => T && T.clear());
