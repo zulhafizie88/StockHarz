@@ -1,6 +1,16 @@
 {
   "alerts": [
     {
+      "id": "1zevzoso",
+      "symbol": "NVDA",
+      "type": "above",
+      "value": 130
+    }
+  ]
+}
+{
+  "alerts": [
+    {
       "id": "fac13at5",
       "symbol": "NVDA",
       "type": "below",
