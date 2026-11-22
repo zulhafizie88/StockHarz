@@ -490,7 +490,7 @@ const FIN_CONCEPTS = {
   netIncome: ['NetIncomeLoss', 'NetIncomeLossAvailableToCommonStockholdersBasic', 'ProfitLoss'],
   eps: ['EarningsPerShareDiluted', 'EarningsPerShareBasicAndDiluted', 'EarningsPerShareBasic'],
   cfo: ['NetCashProvidedByUsedInOperatingActivities', 'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations'],
-  capex: ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets'],
+  capex: ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets', 'PaymentsToAcquireOilAndGasPropertyAndEquipment', 'PaymentsToAcquireOilAndGasProperty', 'PaymentsToExploreAndDevelopOilAndGasProperties'],
   dividendsPaid: ['PaymentsOfDividends', 'PaymentsOfDividendsCommonStock'],
   buybacks: ['PaymentsForRepurchaseOfCommonStock'],
   assets: ['Assets'],
@@ -524,7 +524,7 @@ const D = {
   search: q => fh('/search', { q, exchange: 'US' }, { ttl: 36e5 }),
   calendar: s => fh('/calendar/earnings', { from: isoDay(0), to: isoDay(120), symbol: s }, { ttl: 12 * 36e5, persist: true }),
   async financials(s) {
-    const ck = 'fin3:' + s; const hit = cacheGet(ck); if (hit !== undefined) return hit;
+    const ck = 'fin4:' + s; const hit = cacheGet(ck); if (hit !== undefined) return hit;
     const j = await fh('/stock/financials-reported', { symbol: s, freq: 'annual' }, { ttl: 1 });
     const seen = new Set(), years = [];
     for (const row of (j && j.data) || []) {
@@ -534,7 +534,8 @@ const D = {
       const rep = row.report || {}, all = [...(rep.ic || []), ...(rep.cf || []), ...(rep.bs || [])];
       const o = { year: y, endDate: row.endDate };
       for (const [k, names] of Object.entries(FIN_CONCEPTS)) o[k] = pickConcept(k === 'assets' || k === 'liabilities' || k === 'equity' || k === 'cash' || k === 'stInv' || /Debt|cp/.test(k) ? rep.bs : (['cfo', 'capex', 'dividendsPaid', 'buybacks'].includes(k) ? rep.cf : rep.ic), names) ?? pickConcept(all, names);
-      o.fcf = isNum(o.cfo) ? o.cfo - Math.abs(o.capex || 0) : null;
+      // No capital spending found means we can't tell free cash flow apart from operating cash flow, so leave it empty.
+      o.fcf = isNum(o.cfo) && isNum(o.capex) ? o.cfo - Math.abs(o.capex) : null;
       o.debt = [o.ltDebt, o.stDebt, o.cp].some(isNum) ? (o.ltDebt || 0) + (o.stDebt || 0) + (o.cp || 0) : null;
       years.push(o);
       if (years.length >= 8) break;
@@ -592,6 +593,11 @@ function fundamentals(q, p, met, fin) {
   const ser = (met && met.series && met.series.annual) || {};
   const hs = k => Array.isArray(ser[k]) ? ser[k].slice(0, 5).map(x => +x.v).filter(v => isNum(v) && v > 0 && v < 1000) : [];
   f.hist = { pe: hs('pe'), ps: hs('ps'), pb: hs('pb') };
+  // Earnings growth for PEG: Finnhub's 5-year rate, else its 3-year rate, else net income growth from the annual reports, else sales growth.
+  const Y = ((fin && fin.years) || []).filter(y => isNum(y.netIncome));
+  const y0 = Y.length >= 4 ? Y[Math.max(0, Y.length - 6)] : null, y1 = Y[Y.length - 1];
+  const niCagr = y0 && y0.netIncome > 0 && y1.netIncome > 0 && y1.year > y0.year ? (Math.pow(y1.netIncome / y0.netIncome, 1 / (y1.year - y0.year)) - 1) * 100 : null;
+  f.growE = isNum(f.epsG5) ? { v: f.epsG5, src: '5-year EPS growth' } : isNum(f.epsG3) ? { v: f.epsG3, src: '3-year EPS growth' } : isNum(niCagr) ? { v: niCagr, src: `net profit growth ${y0.year}–${y1.year}` } : isNum(f.revG5) ? { v: f.revG5, src: '5-year sales growth' } : null;
   if (!isNum(f.pe) && price && f.eps > 0) f.pe = price / f.eps;
   return f;
 }
@@ -637,7 +643,7 @@ const VAL_METHODS = [
   { key: 'pe', name: 'Average price to earnings', code: 'P/E', group: 'ratio', how: 'Earnings per share × the P/E ratio the stock averaged over the last five fiscal years.' },
   { key: 'pb', name: 'Average price to book', code: 'P/B', group: 'ratio', how: 'Book value per share × the P/B ratio the stock averaged over the last five fiscal years.' },
   { key: 'psg', name: 'Growth-adjusted price to sales', code: 'PSG', group: 'ratio', how: 'The average P/S, scaled by how fast sales grow now compared with the last five years (between a quarter and double). Slowing growth pulls it down.' },
-  { key: 'peg', name: 'Growth-adjusted price to earnings', code: 'PEG', group: 'ratio', how: 'Earnings per share × the five-year earnings growth rate, which is a PEG ratio of 1 (growth kept between 5% and 25%).' },
+  { key: 'peg', name: 'Growth-adjusted price to earnings', code: 'PEG', group: 'ratio', how: 'Earnings per share × the earnings growth rate, which is a PEG ratio of 1 (growth kept between 5% and 25%). Uses 5-year EPS growth, or 3-year, or net profit growth from the annual reports.' },
   { key: 'gn', name: 'Graham number', code: 'Graham', group: 'classic', how: '√(22.5 × EPS × book value per share). Benjamin Graham\'s ceiling for defensive investors.' },
   { key: 'gg', name: 'Earnings growth formula', code: 'EPS × (8.5 + 2g)', group: 'classic', how: 'EPS × (8.5 + 2 × growth), with growth capped at 20%.' },
 ];
@@ -652,7 +658,7 @@ function valuations(f, o = {}) {
   const H = f.hist || {}, mean = k => H[k] && H[k].length >= 2 ? avg(H[k]) : null;
   const mPS = mean('ps'), mPE = mean('pe'), mPB = mean('pb');
   const psgK = isNum(f.revG) && f.revG5 > 0 ? clamp(Math.max(f.revG, 1) / f.revG5, 0.25, 2) : null;
-  const pegG = isNum(f.epsG5) ? clamp(f.epsG5, 5, 25) : null;
+  const pegG = f.growE ? clamp(f.growE.v, 5, 25) : null;
   const raw = {
     cf20: d20(last.cfo), fcf20: d20(a.fcf), ni20: d20(ni), fcfT: term && term.perShare,
     ps: mPS && f.sps > 0 ? mPS * f.sps : null,
@@ -665,7 +671,8 @@ function valuations(f, o = {}) {
   const all = VAL_METHODS.map(x => {
     const v = isNum(raw[x.key]) && raw[x.key] > 0 ? raw[x.key] : null;
     const ok = saneEstimate(v, f.price);
-    const why = ok ? '' : fin && x.group === 'cash' ? 'Not used for banks and insurers' : v == null ? 'Not enough data' : 'Far from the price, likely a data problem';
+    const need = { cf20: 'No operating cash flow', fcf20: 'No positive free cash flow', ni20: 'No positive net profit', fcfT: 'No positive free cash flow', ps: 'No P/S history', pe: f.eps > 0 ? 'No P/E history' : 'Not profitable', pb: 'No P/B history', psg: 'No sales growth data', peg: f.eps > 0 ? 'No growth data' : 'Not profitable', gn: f.eps > 0 ? 'No book value' : 'Not profitable', gg: 'Not profitable' }[x.key];
+    const why = ok ? '' : fin && x.group === 'cash' ? 'Not used for banks and insurers' : v == null ? need || 'Not enough data' : 'Far from the price, likely a data problem';
     return { ...x, v, ok, why };
   });
   const list = all.filter(x => x.ok);
@@ -1718,7 +1725,7 @@ function tabValuation(s, el) {
       </div><div id="dout" style="margin-top:14px"></div></section>
       <section class="card"><h2>Other methods</h2><div class="grid" style="gap:14px">
         <div><div class="eyebrow">Usual multiples, last five years</div><div class="small" style="margin-top:4px">Average P/S ${fmt.x(v0.means.ps)} × sales per share ${fmt.money(f.sps)}<br>Average P/E ${fmt.x(v0.means.pe)} × EPS ${fmt.money(f.eps)}<br>Average P/B ${fmt.x(v0.means.pb)} × book value per share ${fmt.money(f.bvps)}</div><div class="small muted">If the stock went back to the price it usually trades at for its sales, profit and book value.</div></div>
-        <div><div class="eyebrow">Growth-adjusted multiples</div><div class="small" style="margin-top:4px">PSG: average P/S × ${isNum(v0.psgK) ? fmt.n(v0.psgK) : '–'} (sales growth now ${fmt.pct(f.revG, 1)} vs ${fmt.pct(f.revG5, 1)} a year over five years)<br>PEG: EPS ${fmt.money(f.eps)} × ${isNum(v0.pegG) ? fmt.n(v0.pegG, 1) : '–'} (five-year earnings growth)</div><div class="small muted">Pay more for faster growth and less when growth slows.</div></div>
+        <div><div class="eyebrow">Growth-adjusted multiples</div><div class="small" style="margin-top:4px">PSG: average P/S × ${isNum(v0.psgK) ? fmt.n(v0.psgK) : '–'} (sales growth now ${fmt.pct(f.revG, 1)} vs ${fmt.pct(f.revG5, 1)} a year over five years)<br>PEG: EPS ${fmt.money(f.eps)} × ${isNum(v0.pegG) ? fmt.n(v0.pegG, 1) : '–'} (${f.growE ? esc(f.growE.src) + ' ' + fmt.pct(f.growE.v, 1) : 'no growth data'})</div><div class="small muted">Pay more for faster growth and less when growth slows.</div></div>
         <div><div class="eyebrow">Graham number</div><div class="kpi"><span class="v">${fmt.money(gn)}</span></div><div class="small muted">√(22.5 × EPS ${fmt.money(f.eps)} × book value per share ${fmt.money(f.bvps)}). A conservative ceiling for defensive investors.</div></div>
         <div><div class="eyebrow">Earnings growth formula</div><div class="kpi"><span class="v">${fmt.money(gg)}</span></div><div class="small muted">EPS × (8.5 + 2 × growth). Uses ${fmt.pct(clamp(isNum(f.epsG5) ? f.epsG5 : (f.revG5 || 5), 0, 20), 1)} yearly growth, capped at 20%.</div></div>
       </div></section></div>
