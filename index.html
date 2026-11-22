@@ -94,6 +94,21 @@ label.f{display:grid;gap:4px;font-size:.8rem;color:var(--muted);font-weight:500}
 
 /* stock header */
 .sh{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.sh-main{flex:1;min-width:240px}
+.sh-main h1{font-size:1.6rem;line-height:1.2}
+.sh-tk{font-family:var(--f-mono);font-size:.95rem;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:2px 8px;border-radius:6px;vertical-align:3px}
+.sh-crumb{font-size:.78rem;color:var(--muted);font-weight:500;margin-bottom:4px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.sh-crumb i{width:4px;height:4px;border-radius:50%;background:var(--orange)}
+.sh-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:stretch}
+.sh-moat{display:grid;place-items:center;padding:6px 14px;border-radius:10px;color:var(--accent-fg);font-weight:700;font-size:.85rem;min-width:92px;text-align:center}
+.sh-moat:hover,.sh-fv:hover{text-decoration:none;filter:brightness(1.05)}
+.sh-fv{display:grid;grid-template-columns:auto auto;align-items:center;column-gap:12px;row-gap:4px;padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--fg)}
+.sh-fv .k{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--orange)}
+.sh-fv b{text-align:right;font-size:1rem}
+.sh-gap{grid-column:1 / -1;text-align:center;font-size:.78rem;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--surface);color:var(--muted)}
+.sh-gap.good{background:var(--up-soft);color:var(--up)} .sh-gap.bad{background:var(--down-soft);color:var(--down)} .sh-gap.acc{background:var(--accent-soft);color:var(--accent)}
+.sh-badges #shbadge{align-self:center}
+.sh-act{align-self:flex-start}
 .logo{width:52px;height:52px;border-radius:12px;background:var(--surface-2);display:grid;place-items:center;overflow:hidden;flex:none;font-family:var(--f-display);font-weight:700;color:var(--muted)}
 .logo img{width:100%;height:100%;object-fit:contain;background:#fff}
 .price{font-family:var(--f-mono);font-size:2rem;font-weight:500;line-height:1.1}
@@ -1488,6 +1503,19 @@ async function stockBundle(s) {
   if (!q || (!q.c && !q.pc && !(p && p.name))) throw new ApiError('nf', `No data found for "${s}". Check the ticker symbol (US-listed stocks only on the free plan).`);
   return { q, p: p || {}, m };
 }
+// "NEW YORK STOCK EXCHANGE, INC." -> "New York Stock Exchange"; any Nasdaq tier -> "Nasdaq".
+function exchangeName(x) {
+  if (!x) return '';
+  if (/nasdaq/i.test(x)) return 'Nasdaq';
+  return x.replace(/,?\s*(inc|llc|ltd)\.?$/i, '').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()).replace(/\bOf\b/g, 'of');
+}
+const myTime = t => new Date(t * 1000).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+// Regular US session, 9:30 to 16:00 New York time on weekdays. Ignores exchange holidays.
+function usMarketOpen(now = new Date()) {
+  const o = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).formatToParts(now).map(x => [x.type, x.value]));
+  const mins = +o.hour * 60 + +o.minute;
+  return !['Sat', 'Sun'].includes(o.weekday) && mins >= 570 && mins < 960;
+}
 function pageStock(s, tab) {
   setNav(''); addRecent(s);
   if (!TABS.some(t => t[0] === tab)) tab = 'overview';
@@ -1499,10 +1527,31 @@ function pageStock(s, tab) {
     const { q, p } = await stockBundle(s);
     if (id !== renderId) return;
     document.title = `${s} ${fmt.money(q.c)} · StockHarz`;
-    el.innerHTML = `<div class="sh">${logoHtml(p, s)}<div style="flex:1;min-width:220px"><div class="row" style="gap:8px"><h1>${esc(p.name || s)}</h1><span class="pill mono">${esc(s)}</span>${p.exchange ? `<span class="pill">${esc(p.exchange.replace(/ .*/, ''))}</span>` : ''}${p.finnhubIndustry ? `<span class="pill acc">${esc(p.finnhubIndustry)}</span>` : ''}</div>
-      <div class="row" style="margin-top:6px;gap:14px;align-items:baseline"><span class="price">${fmt.money(q.c)}</span>${chg(q.d, q.dp)}<span class="small muted">${p.currency && p.currency !== 'USD' ? esc(p.currency) + ' · ' : ''}${q.t ? 'as of ' + new Date(q.t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span></div></div>
-      <div class="row"><a href="#stock/${s}/shariah" id="shbadge" class="pill" title="Shariah screen (estimate)">Shariah: checking…</a><button class="btn" id="wbtn" aria-pressed="${inWatch(s)}">${inWatch(s) ? 'On watchlist' : 'Add to watchlist'}</button><a class="btn" href="#alerts/${s}">Set alert</a><a class="btn" href="#portfolio">Add to portfolio</a></div></div>`;
-    D.financials(s).catch(() => null).then(async fin => { const b = $('#shbadge'); if (!b) return; const { m } = await stockBundle(s); const sh = shariahScreen(s, fundamentals(q, p, m, fin), fin); b.className = 'pill ' + shTone(sh.status); b.textContent = 'Shariah: ' + sh.status; }).catch(() => { const b = $('#shbadge'); if (b) b.textContent = 'Shariah: n/a'; });
+    const sp = await loadSp500().then(j => j.stocks.find(x => x.s === s)).catch(() => null);
+    if (id !== renderId) return;
+    const crumbs = [...new Set([sp && sp.sector, p.finnhubIndustry].filter(Boolean))];
+    el.innerHTML = `<div class="sh">${logoHtml(p, s)}<div class="sh-main">
+      ${crumbs.length ? `<div class="sh-crumb">${crumbs.map(esc).join('<i></i>')}</div>` : ''}
+      <h1>${esc(p.name || s)} <span class="sh-tk">${esc(s)}</span></h1>
+      <div class="small muted">${[exchangeName(p.exchange), p.currency || 'USD'].filter(Boolean).map(esc).join(' · ')}</div>
+      <div class="sh-badges"><a href="#stock/${s}/moat" id="sh-moat" class="sh-moat m-unk">Moat…</a><a href="#stock/${s}/valuation" class="sh-fv" id="sh-fv"><span class="k">Harz Fair Value</span><b class="num">…</b><span class="sh-gap">Working it out</span></a><a href="#stock/${s}/shariah" id="shbadge" class="pill" title="Shariah screen (estimate)">Shariah: checking…</a></div>
+      <div class="row" style="margin-top:10px;gap:12px;align-items:baseline"><span class="price">${fmt.money(q.c)}</span>${chg(q.d, q.dp)}</div>
+      <div class="small muted" style="margin-top:2px">${q.t ? `As of ${myTime(q.t)} Malaysia time · ` : ''}${usMarketOpen() ? '<span class="up">US market open</span>' : 'US market closed'}</div></div>
+      <div class="row sh-act"><button class="btn" id="wbtn" aria-pressed="${inWatch(s)}">${inWatch(s) ? 'On watchlist' : 'Add to watchlist'}</button><a class="btn" href="#alerts/${s}">Set alert</a><a class="btn" href="#portfolio">Add to portfolio</a></div></div>`;
+    Promise.all([D.financials(s).catch(() => null), stockBundle(s)]).then(([fin, { m }]) => {
+      if (id !== renderId) return;
+      const f = fundamentals(q, p, m, fin);
+      const sh = shariahScreen(s, f, fin), b = $('#shbadge'); if (b) { b.className = 'pill ' + shTone(sh.status); b.textContent = 'Shariah: ' + sh.status; }
+      const mo = moatAnalysis(f, fin), mc = MOATS.find(x => x[0] === mo.rating) || MOATS[3], mb = $('#sh-moat');
+      if (mb) { mb.className = 'sh-moat ' + mc[1]; mb.textContent = mc[2]; }
+      const val = valuations(f), vd = verdict(val.blend, f.price), fv = $('#sh-fv');
+      if (fv) {
+        fv.querySelector('b').textContent = fmt.money(val.blend);
+        const g = fv.querySelector('.sh-gap');
+        if (isNum(val.blend) && isNum(f.price)) { const d = Math.abs(val.blend - f.price) / val.blend * 100; g.className = 'sh-gap ' + vd.tone; g.textContent = vd.tone === 'acc' ? `Near fair value · ${d.toFixed(1)}% ${f.price <= val.blend ? 'below' : 'above'}` : `${d.toFixed(1)}% ${vd.tone === 'good' ? 'undervalued' : 'overvalued'}`; }
+        else g.textContent = 'Not enough data';
+      }
+    }).catch(() => { const b = $('#shbadge'); if (b) b.textContent = 'Shariah: n/a'; const g = $('#sh-fv .sh-gap'); if (g) g.textContent = 'Not available'; });
     $('#wbtn').addEventListener('click', e => { toggleWatch(s); e.target.setAttribute('aria-pressed', inWatch(s)); e.target.textContent = inWatch(s) ? 'On watchlist' : 'Add to watchlist'; });
   }, 70);
   const el = $('#tab');
