@@ -260,7 +260,8 @@ a.idx:hover{text-decoration:none;transform:translateY(-2px);box-shadow:0 10px 24
 .tick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:5px}
 .tick{display:block;text-align:center;padding:5px 2px;border-radius:5px;font-family:var(--f-mono);font-size:.74rem;font-weight:600;color:#fff;text-decoration:none}
 .tick{position:relative}
-.tick.shc::after{content:"";position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+.tick.shc::after{content:"";position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:#1D4ED8;box-shadow:0 0 0 1.5px #fff}
+.vm-legend i.shdot{width:9px;height:9px;border-radius:50%;background:#1D4ED8;box-shadow:0 0 0 1.5px #fff,0 0 0 2.5px var(--line);vertical-align:-1px}
 .tick:hover{text-decoration:none;filter:brightness(1.1);outline:2px solid var(--fg);outline-offset:-2px}
 .vm-group{border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:8px}
 @media (max-width:560px){.vm-row{grid-template-columns:minmax(0,1fr)}.vm-row small{display:none}.vm-track{--k:.86}}
@@ -1312,12 +1313,12 @@ function drawSp500(el, d) {
   const usedMoats = MOATS.filter(([m]) => rated.some(x => x.moat === m));
   const cheapShare = total ? (by.vu.length + by.u.length + by.f.length) / total * 100 : 0;
   const st = { sh: 'all', bucket: 'vu', sort: store.get('spSort', 'az'), moat: 'all' };
-  const legend = `<div class="vm-legend">${usedMoats.map(([, c, n]) => `<span><i class="${c}"></i>${n}</span>`).join('')}</div>`;
+  const legend = `<div class="vm-legend">${usedMoats.map(([, c, n]) => `<span><i class="${c}"></i>${n}</span>`).join('')}${rated.some(x => x.sh === 'C') ? '<span><i class="shdot"></i>Shariah compliant</span>' : ''}</div>`;
   el.innerHTML = `<div class="card-h"><div><h2>S&amp;P 500: Valuation &amp; Moat</h2><div class="small muted">Based on StockHarz's own fair value and moat rules. Updated ${fmt.date(d.generated)} · ${total} stocks rated.</div></div></div>
     ${legend}
     <div class="vm-rows">${VBUCKETS.map(([k, n, sub]) => { const arr = by[k], cnt = arr.length; const w = cnt / maxN * 100;
       return `<button type="button" class="vm-row" data-b="${k}" aria-label="Show ${n} stocks"><span><b>${n}</b><small>${sub}</small></span><span class="vm-track"><span class="vm-bar" style="width:calc(var(--k) * ${Math.max(w, 0.6)}%)">${usedMoats.map(([m, c, mn]) => { const c2 = arr.filter(x => x.moat === m).length; if (!c2) return ''; const pct = Math.round(c2 / cnt * 100); return `<span class="${c}" style="width:${c2 / cnt * 100}%" title="${mn}: ${c2} stocks (${pct}%)">${pct >= 12 ? pct + '%' : ''}</span>`; }).join('')}</span><span class="vm-count">${cnt}<span class="hide-sm"> stocks (${total ? (cnt / total * 100).toFixed(1) : 0}%)</span></span></span></button>`; }).join('')}</div>
-    <p class="small" style="margin:14px 0 0"><b>${Math.round(cheapShare)}%</b> of the S&amp;P 500 is undervalued or fairly valued by StockHarz's estimate.${rated.some(x => x.sh) ? ` <b>${rated.filter(x => x.sh === 'C').length}</b> stocks pass the Shariah screen (white dot on the tile).` : ''}</p>
+    <p class="small" style="margin:14px 0 0"><b>${Math.round(cheapShare)}%</b> of the S&amp;P 500 is undervalued or fairly valued by StockHarz's estimate.${rated.some(x => x.sh) ? ` <b>${rated.filter(x => x.sh === 'C').length}</b> stocks pass the Shariah screen (blue dot on the tile).` : ''}</p>
     <div class="row" style="margin-top:16px;gap:8px">
       <div class="seg" id="spm" role="group" aria-label="Filter by moat"><button type="button" data-m="all" class="on">All moats</button>${usedMoats.map(([m, , n]) => `<button type="button" data-m="${m}">${n}</button>`).join('')}</div>
       ${rated.some(x => x.sh) ? `<div class="seg" id="spsh" role="group" aria-label="Filter by Shariah status"><button type="button" data-h="all" class="on">All</button><button type="button" data-h="C">Shariah compliant</button></div>` : ''}
