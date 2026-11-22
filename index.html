@@ -317,6 +317,22 @@ footer{background:linear-gradient(100deg,var(--brand-blue),var(--brand-blue-2));
 dl.gl > div{padding:10px 12px;border-radius:10px;background:var(--surface-2);border-left:4px solid var(--accent)}
 dl.gl > div:nth-child(2n){border-left-color:var(--orange)}
 .empty{background:var(--surface-2);border-radius:10px}
+.ideas{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.idea{--c:var(--accent);--cs:var(--accent-soft);display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line);border-top:3px solid var(--c);border-radius:var(--r);background:linear-gradient(160deg,var(--cs),var(--surface) 45%);min-width:0}
+.idea.orange{--c:var(--orange);--cs:var(--orange-soft)}
+.idea.on{outline:2px solid var(--c);outline-offset:-1px}
+.idea-ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;background:var(--c);color:#fff}
+.idea h3{font-size:1rem}
+.idea p{margin:0;font-size:.82rem;color:var(--muted)}
+.idea ul{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:4px}
+.idea li{font-size:.7rem;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--surface-2);color:var(--fg)}
+.idea-ft{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:4px}
+.idea-ft .btn[disabled]{opacity:.5;cursor:not-allowed}
+.ideas-sh{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;padding:6px 12px;border-radius:999px;background:var(--accent-soft);color:var(--accent);cursor:pointer}
+.ideas-sh input{accent-color:var(--accent);margin:0}
+.idea-res{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);scroll-margin-top:80px}
+.idea-nm{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:600px){.ideas{grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:80%;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:2px;padding:2px 2px 6px}.idea{scroll-snap-align:start}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -1213,6 +1229,7 @@ function pageHome() {
   ${noKey ? `<section class="card setup"><h2>Welcome to StockHarz</h2><span>Research any US stock, keep a watchlist, set price alerts and track your portfolio, all free. To load live data, add a free Finnhub key (and optionally a free Twelve Data key for charts) in Settings. Everything you save stays in this browser.</span><span class="small">Already set up on another device? Open StockHarz there, go to Settings and use <b>Copy setup link</b>, then open that link here.</span><div class="row"><a class="btn primary" href="#settings">Set up in 1 minute</a><a class="btn" href="#stock/AAPL/chart">See an AAPL chart now</a></div></section>` : ''}
   <section><div class="card-h"><h1>Market today</h1><span class="small muted">US index funds and Bursa Malaysia</span></div>
     <div class="grid g4" id="mkt">${skel(80)}</div></section>
+  <section class="card" id="ideas"></section>
   <section class="card" id="sp500"></section>
   <div class="split">
     <section class="card"><div class="card-h"><h2>Your watchlist</h2><a class="btn sm" href="#watchlist">Open watchlist</a></div><div id="hw"></div></section>
@@ -1222,6 +1239,7 @@ function pageHome() {
     <section class="card"><div class="card-h"><h2>Market news</h2></div><div id="hn"></div></section>
     <section class="card"><div class="card-h"><h2>Upcoming earnings</h2><span class="small muted">From your watchlist</span></div><div id="he"></div></section>
   </div>`;
+  renderIdeas($('#ideas'));
   renderSp500($('#sp500'));
   const IDX = [['SPY', 'S&P 500'], ['QQQ', 'Nasdaq 100'], ['DIA', 'Dow Jones']];
   load($('#mkt'), async el => {
@@ -1268,15 +1286,15 @@ function bucketOf(price, iv) {
   return r <= 0.7 ? 'vu' : r <= 0.9 ? 'u' : r < 1.1 ? 'f' : r < 1.3 ? 'o' : 'vo';
 }
 let sp500Cache = null;
-async function loadSp500() {
-  if (sp500Cache) return sp500Cache;
+function loadSp500() { return sp500Cache || (sp500Cache = fetchSp500().catch(e => { sp500Cache = null; throw e; })); }
+async function fetchSp500() {
   let r;
   try { r = await fetch('data/sp500.json', { cache: 'no-cache' }); } catch { r = null; }
   if (!r || !r.ok) throw new ApiError('nosp', '');
   const j = await r.json();
   j.stocks = (j.stocks || []).filter(x => x && x.s);
   j.stocks.forEach(x => { x.b = bucketOf(x.price, x.iv); x.shL = shLong(x.sh); if (!MOATS.some(m => m[0] === x.moat)) x.moat = 'Unknown'; });
-  return (sp500Cache = j);
+  return j;
 }
 function renderSp500(el) {
   if (!el) return;
@@ -1325,6 +1343,109 @@ function drawSp500(el, d) {
   $('#sps', el).addEventListener('change', e => { st.sort = e.target.value; store.set('spSort', st.sort); grid(); });
   $('#spall', el).addEventListener('click', () => { st.bucket = 'all'; grid(); });
   grid();
+}
+
+/* ============ Screening ideas (home page). Filters data/sp500.json with StockHarz's own rules. ============ */
+const IDEA_ICONS = {
+  compound: '<path d="M4 20V15M9 20V12M14 20V9M19 20V5"/><path d="M3 10l5-4 4 3 8-6"/>',
+  income: '<ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6M5 10v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6v-4M5 14v4c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6v-4"/>',
+  growth: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  defend: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
+  rebound: '<path d="M3 5l6 8 4-3 8 9"/><path d="M15 19h6v-6"/>',
+  cycle: '<path d="M20 12a8 8 0 01-14 5.3M4 12A8 8 0 0118 6.7"/><path d="M18 3v4h-4M6 21v-4h4"/>',
+  gem: '<path d="M6 3h12l4 6-10 12L2 9z"/><path d="M2 9h20M12 21L8 9l4-6 4 6z"/>',
+  scale: '<path d="M12 3v18M7 21h10M5 7h14"/><path d="M5 7l-3 7a3 3 0 006 0zM19 7l-3 7a3 3 0 006 0z"/>',
+  castle: '<path d="M4 21V9h3V6h3v3h4V6h3v3h3v12z"/><path d="M10 21v-5h4v5"/>',
+  moon: '<path d="M20 14.5A8 8 0 119.5 4a6.5 6.5 0 0010.5 10.5z"/><path d="M17 4l.6 1.4L19 6l-1.4.6L17 8l-.6-1.4L15 6l1.4-.6z"/>',
+};
+const DEFENSIVE = /Consumer Staples|Utilities|Health Care/;
+const CYCLICAL = /Energy|Materials|Industrials|Financials|Consumer Discretionary/;
+const gapPct = x => x.price > 0 && x.iv > 0 ? (x.price / x.iv - 1) * 100 : null;
+const pegOf = x => x.pe > 0 && x.eg > 0 ? x.pe / x.eg : null;
+const off52 = x => x.price > 0 && x.hi52 > 0 ? (x.price / x.hi52 - 1) * 100 : null;
+const goodMoat = x => x.moat === 'Wide' || x.moat === 'Narrow';
+const byGap = (a, b) => gapPct(a) - gapPct(b);
+const C = {
+  gap: ['vs fair value', x => { const g = gapPct(x); return isNum(g) ? `<span class="${g < 0 ? 'up' : 'down'}">${g < 0 ? Math.round(-g) + '% below' : Math.round(g) + '% above'}</span>` : '–'; }],
+  roe: ['ROE', x => fmt.pct(x.roe, 1)], om: ['Op. margin', x => fmt.pct(x.om, 1)], nm: ['Net margin', x => fmt.pct(x.nm, 1)],
+  rg: ['Sales growth (1y)', x => fmt.pct(x.rg, 1, true)], rg5: ['Sales growth (5y/yr)', x => fmt.pct(x.rg5, 1, true)],
+  dy: ['Dividend yield', x => fmt.pct(x.dy)], po: ['Payout', x => fmt.pct(x.po, 0)], dg5: ['Dividend growth (5y)', x => fmt.pct(x.dg5, 1, true)],
+  beta: ['Beta', x => fmt.n(x.beta)], pe: ['P/E', x => fmt.x(x.pe)], peg: ['PEG', x => fmt.n(pegOf(x))], eg: ['Earnings growth', x => fmt.pct(x.eg, 1, true)],
+  de: ['Debt/equity', x => fmt.n(x.de)], off: ['From 52w high', x => `<span class="down">${fmt.pct(off52(x), 0)}</span>`], cap: ['Market cap', x => fmt.big((x.mcap || 0) * 1e6)], hs: ['Harz Score', x => isNum(x.hs) ? x.hs : '–'],
+};
+const IDEAS = [
+  { id: 'compounders', icon: 'compound', tone: 'blue', name: 'Steady compounders', blurb: 'Businesses with a moat that turn profit into more profit year after year, with sensible debt.',
+    rules: ['Wide or narrow moat', 'ROE 15%+', 'Sales up 7%+ a year (5y)', 'Operating margin 15%+', 'Debt/equity under 1.5'], need: ['roe', 'rg5', 'om'],
+    test: x => goodMoat(x) && x.roe >= 15 && x.rg5 >= 7 && x.om >= 15 && isNum(x.de) && x.de >= 0 && x.de < 1.5, sort: (a, b) => (b.hs || 0) - (a.hs || 0) || b.roe - a.roe, cols: ['roe', 'rg5', 'hs'] },
+  { id: 'income', icon: 'income', tone: 'orange', name: 'Dividend income', blurb: 'Solid yield from companies that can afford their payout and have been raising it.',
+    rules: ['Yield 2.5%+', 'Payout under 75% of profit', 'Dividend grew over 5 years', 'Profitable'], need: ['dy', 'po', 'dg5'],
+    test: x => x.dy >= 2.5 && x.po > 0 && x.po < 75 && x.dg5 > 0 && x.nm > 0, sort: (a, b) => b.dy - a.dy, cols: ['dy', 'po', 'dg5'] },
+  { id: 'growers', icon: 'growth', tone: 'orange', name: 'Fast growers (high risk)', blurb: 'Sales racing ahead at 20% or more. Exciting, but prices often already expect a lot.',
+    rules: ['Sales up 20%+ in the last year', 'or 20%+ a year over 3 years', 'Profit not required'], need: ['rg', 'rg3'],
+    test: x => x.rg >= 20 || x.rg3 >= 20, sort: (a, b) => Math.max(b.rg ?? -99, b.rg3 ?? -99) - Math.max(a.rg ?? -99, a.rg3 ?? -99), cols: ['rg', 'nm', 'gap'] },
+  { id: 'defensive', icon: 'defend', tone: 'blue', name: 'Defensive shelter', blurb: 'Everyday-need businesses whose shares usually swing less than the market in a downturn.',
+    rules: ['Staples, utilities or health care', 'Beta under 0.8', 'Profitable', 'Pays a dividend'], need: ['beta', 'nm', 'dy'],
+    test: x => DEFENSIVE.test(x.sector) && isNum(x.beta) && x.beta < 0.8 && x.nm > 0 && x.dy > 0, sort: (a, b) => a.beta - b.beta, cols: ['beta', 'dy', 'gap'] },
+  { id: 'rebound', icon: 'rebound', tone: 'orange', name: 'Quality on sale', blurb: 'Good businesses whose share price has dropped hard from its high. Check why before buying.',
+    rules: ['30%+ below the 52-week high', 'Wide or narrow moat', 'Still profitable (ROE above 0)'], need: ['hi52', 'roe'],
+    test: x => off52(x) <= -30 && goodMoat(x) && x.roe > 0, sort: (a, b) => off52(a) - off52(b), cols: ['off', 'gap', 'roe'] },
+  { id: 'cyclicals', icon: 'cycle', tone: 'blue', name: 'Cheap cyclicals', blurb: 'Energy, materials, industrial, financial and consumer names priced well under fair value.',
+    rules: ['Cyclical sector', '15%+ below Harz Fair Value', 'P/E between 0 and 18'], need: ['pe'],
+    test: x => CYCLICAL.test(x.sector) && gapPct(x) <= -15 && x.pe > 0 && x.pe <= 18, sort: byGap, cols: ['gap', 'pe', 'roe'] },
+  { id: 'gems', icon: 'gem', tone: 'orange', name: 'Hidden gems', blurb: 'The smaller, less-watched end of the S&P 500, trading below fair value with healthy returns.',
+    rules: ['Market cap under $25B', '10%+ below Harz Fair Value', 'ROE 12%+', 'Sales up 5%+ a year (5y)'], need: ['roe', 'rg5'],
+    test: x => x.mcap > 0 && x.mcap < 25000 && gapPct(x) <= -10 && x.roe >= 12 && x.rg5 >= 5, sort: byGap, cols: ['cap', 'gap', 'roe'] },
+  { id: 'garp', icon: 'scale', tone: 'blue', name: 'Growth at a fair price', blurb: 'In the spirit of Peter Lynch: earnings growing 10–35% a year without paying too much for it.',
+    rules: ['Earnings growth 10–35% a year', 'PEG 1.0 or lower', 'Debt/equity under 1'], need: ['eg', 'pe', 'de'],
+    test: x => x.eg >= 10 && x.eg <= 35 && pegOf(x) > 0 && pegOf(x) <= 1 && isNum(x.de) && x.de >= 0 && x.de < 1, sort: (a, b) => pegOf(a) - pegOf(b), cols: ['peg', 'eg', 'pe'] },
+  { id: 'moatvalue', icon: 'castle', tone: 'orange', name: 'Wide moat, fair price', blurb: 'In the spirit of Warren Buffett: durable advantages, high returns, little debt, sensible price.',
+    rules: ['Wide moat', 'ROE 15%+', 'Net margin 12%+', 'Debt/equity under 1', 'At or below fair value (+5%)'], need: ['roe', 'nm', 'de'],
+    test: x => x.moat === 'Wide' && x.roe >= 15 && x.nm >= 12 && isNum(x.de) && x.de >= 0 && x.de < 1 && gapPct(x) <= 5, sort: byGap, cols: ['gap', 'roe', 'nm'] },
+  { id: 'shariah', icon: 'moon', tone: 'blue', name: 'Shariah value picks', blurb: 'Stocks that pass the StockHarz Shariah screen, have a moat and trade below fair value.',
+    rules: ['Shariah compliant (estimate)', 'Wide or narrow moat', '10%+ below Harz Fair Value'], need: [],
+    test: x => x.sh === 'C' && goodMoat(x) && gapPct(x) <= -10, sort: byGap, cols: ['gap', 'roe', 'dy'] },
+];
+function renderIdeas(el) {
+  if (!el) return;
+  const head = `<div class="card-h"><div><h2>Screening ideas</h2><div class="small muted">Ready-made scans of the S&amp;P 500 using StockHarz's own fair value, moat and Shariah ratings. Pick one and press Run scan.</div></div></div>`;
+  el.innerHTML = head + skel(160);
+  loadSp500().then(d => drawIdeas(el, d, head)).catch(() => {
+    if (!el.isConnected) return;
+    el.innerHTML = head + `<div class="note">${location.protocol === 'file:' ? 'Screening ideas need the online version of StockHarz (GitHub Pages), because they read the nightly S&amp;P 500 data file.' : 'Screening ideas will appear once the nightly S&amp;P 500 data has been built.'}</div>`;
+  });
+}
+function drawIdeas(el, d, head) {
+  if (!el.isConnected) return;
+  const S = d.stocks.filter(x => x.price > 0);
+  const ready = i => i.need.every(k => S.some(x => isNum(x[k])));
+  const st = { id: null, sh: store.get('ideaSh', false) };
+  const hits = i => S.filter(x => { try { return i.test(x) && (!st.sh || x.sh === 'C'); } catch { return false; } });
+  const svg = k => `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IDEA_ICONS[k]}</svg>`;
+  el.innerHTML = head + `<div class="row" style="margin:-4px 0 12px"><label class="ideas-sh"><input type="checkbox" id="idsh"${st.sh ? ' checked' : ''}> Shariah compliant only</label><span class="small muted">Data from ${fmt.date(d.generated)}</span></div>
+    <div class="ideas" id="idg"></div><div id="idr"></div>`;
+  const cards = () => {
+    $('#idg', el).innerHTML = IDEAS.map(i => { const ok = ready(i), n = ok ? hits(i).length : 0;
+      return `<article class="idea ${i.tone}${st.id === i.id ? ' on' : ''}"><div class="idea-ic">${svg(i.icon)}</div><h3>${esc(i.name)}</h3><p>${esc(i.blurb)}</p>
+        <ul>${i.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+        <div class="idea-ft">${ok ? `<span class="small muted"><b class="num">${n}</b> match${n === 1 ? '' : 'es'}</span>` : '<span class="small muted">Ready after the next nightly data update</span>'}<span class="spacer"></span><button type="button" class="btn sm ${st.id === i.id ? '' : 'primary'}" data-run="${i.id}"${ok ? '' : ' disabled'}>${st.id === i.id ? 'Showing' : 'Run scan'}</button></div></article>`; }).join('');
+    $$('[data-run]', el).forEach(b => b.addEventListener('click', () => { st.id = b.dataset.run; st.all = false; cards(); results(true); }));
+  };
+  const results = scroll => {
+    const box = $('#idr', el), i = IDEAS.find(x => x.id === st.id);
+    if (!i) { box.innerHTML = ''; return; }
+    const rows = hits(i).sort((a, b) => { const v = i.sort(a, b); return isNum(v) ? v : 0; });
+    box.innerHTML = `<div class="idea-res"><div class="card-h"><div><h3>${esc(i.name)}: ${rows.length} stock${rows.length === 1 ? '' : 's'}${st.sh ? ' (Shariah compliant only)' : ''}</h3><div class="small muted">${i.rules.map(esc).join(' · ')}</div></div><button type="button" class="btn sm ghost" id="idx">Close</button></div>
+      ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Stock</th><th class="hide-sm">Sector</th><th class="r">Price</th><th class="r hide-sm">Harz Fair Value</th>${i.cols.map((c, k) => `<th class="r${k ? ' hide-sm' : ''}">${C[c][0]}</th>`).join('')}<th class="hide-sm">Moat</th><th class="hide-sm">Shariah</th></tr></thead><tbody>
+      ${rows.slice(0, st.all ? rows.length : 25).map(x => `<tr class="click" data-s="${esc(x.s)}"><td><span class="sym">${esc(x.s)}</span><div class="small muted idea-nm">${esc(x.name || '')}</div></td><td class="hide-sm small">${esc(x.sector || '')}</td><td class="r num">${fmt.money(x.price)}</td><td class="r num hide-sm">${fmt.money(x.iv)}</td>${i.cols.map((c, k) => `<td class="r num${k ? ' hide-sm' : ''}">${C[c][1](x)}</td>`).join('')}<td class="hide-sm"><span class="pill">${esc(x.moat)}</span></td><td class="hide-sm">${x.sh ? `<span class="pill ${shTone(x.shL)}">${x.shL}</span>` : '–'}</td></tr>`).join('')}
+      </tbody></table></div>${rows.length > 25 && !st.all ? `<div class="row" style="justify-content:center;margin-top:10px"><button type="button" class="btn sm" id="idmore">Show all ${rows.length}</button></div>` : ''}` : `<div class="empty">No S&amp;P 500 stock passes every rule right now${st.sh ? ' with the Shariah filter on' : ''}. Try another idea${st.sh ? ' or turn the Shariah filter off' : ''}.</div>`}
+      <p class="small muted" style="margin:10px 0 0">A starting list for your own research, not a recommendation. Figures come from the nightly data build, so prices can be a day old. Shariah status is an estimate, not a fatwa. Click a stock for the full analysis.</p></div>`;
+    bindRows(box);
+    const more = $('#idmore', box); if (more) more.addEventListener('click', () => { st.all = true; results(); });
+    $('#idx', box).addEventListener('click', () => { st.id = null; cards(); results(); });
+    if (scroll) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+  $('#idsh', el).addEventListener('change', e => { st.sh = e.target.checked; store.set('ideaSh', st.sh); cards(); results(); });
+  cards();
 }
 
 function bindRows(el) { $$('tr[data-s]', el).forEach(tr => tr.addEventListener('click', e => { if (e.target.closest('button,a')) return; location.hash = `stock/${tr.dataset.s}/overview`; })); }

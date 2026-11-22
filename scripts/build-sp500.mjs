@@ -68,7 +68,7 @@ const dom = new JSDOM(html, {
   },
 });
 const W = dom.window;
-const app = W.eval('({ D, fundamentals, valuations, moatAnalysis, shariahScreen, mem })');
+const app = W.eval('({ D, fundamentals, valuations, moatAnalysis, shariahScreen, harzScore, mem })');
 
 let list = await getList();
 if (LIMIT) list = list.slice(0, LIMIT);
@@ -86,7 +86,11 @@ for (const [i, it] of list.entries()) {
     const mo = app.moatAnalysis(f, fin);
     const sh = app.shariahScreen(it.s, f, fin);
     const r2 = x => (typeof x === 'number' && isFinite(x)) ? Math.round(x * 100) / 100 : null;
-    out.push({ s: it.s, name: it.name || (p && p.name) || '', sector: it.sector, price: r2(f.price), iv: r2(v.blend), moat: mo.rating, moatPts: mo.pts, moatMax: mo.max, sh: sh.status === 'Compliant' ? 'C' : sh.status === 'Not compliant' ? 'N' : 'D', mcap: r2(f.mcap) });
+    out.push({ s: it.s, name: it.name || (p && p.name) || '', sector: it.sector, price: r2(f.price), iv: r2(v.blend), moat: mo.rating, moatPts: mo.pts, moatMax: mo.max, sh: sh.status === 'Compliant' ? 'C' : sh.status === 'Not compliant' ? 'N' : 'D', mcap: r2(f.mcap),
+      // Extra fields for the home page's screening ideas (percent values are in %).
+      pe: r2(f.pe), pb: r2(f.pb), dy: r2(f.divYield), po: r2(f.payout), dg5: r2(f.divG5), beta: r2(f.beta),
+      roe: r2(f.roe), gm: r2(f.grossM), om: r2(f.opM), nm: r2(f.netM), rg: r2(f.revG), rg3: r2(f.revG3), rg5: r2(f.revG5),
+      eg: r2(f.growE && f.growE.v), de: r2(f.de), cr: r2(f.curRatio), hi52: r2(f.hi52), ret52: r2(f.ret52), hs: app.harzScore(f).total });
   } catch (e) {
     failed.push(it.s); console.warn(`${it.s}: ${e.message}`);
   }
