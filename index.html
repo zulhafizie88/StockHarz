@@ -332,7 +332,7 @@ dl.gl > div:nth-child(2n){border-left-color:var(--orange)}
 .ideas-sh input{accent-color:var(--accent);margin:0}
 .idea-res{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);scroll-margin-top:80px}
 .idea-nm{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media (max-width:600px){.ideas{grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:80%;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:2px;padding:2px 2px 6px}.idea{scroll-snap-align:start}}
+@media (max-width:600px){.ideas{grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:80%;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:2px;padding:2px 2px 6px}.idea{scroll-snap-align:start}.idea-nm{max-width:120px}.idea-res th{white-space:normal}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -350,11 +350,11 @@ dl.gl > div:nth-child(2n){border-left-color:var(--orange)}
     </div>
     <nav class="main" id="nav">
       <a href="#home" data-p="home">Home</a>
+      <a href="#screens" data-p="screens">Screening ideas</a>
       <a href="#watchlist" data-p="watchlist">Watchlist</a>
       <a href="#portfolio" data-p="portfolio">Portfolio</a>
       <a href="#alerts" data-p="alerts">Alerts</a>
       <a href="#compare" data-p="compare">Compare</a>
-      <a href="#glossary" data-p="glossary">Glossary</a>
       <a href="#settings" data-p="settings">Settings</a>
     </nav>
   </div>
@@ -1209,6 +1209,7 @@ function route() {
     if (page === 'compare') return pageCompare(a);
     if (page === 'settings') return pageSettings();
     if (page === 'glossary') return pageGlossary();
+    if (page === 'screens') return pageScreens();
     return pageHome();
   } catch (e) { console.error(e); app.innerHTML = errBox(e); }
 }
@@ -1229,7 +1230,6 @@ function pageHome() {
   ${noKey ? `<section class="card setup"><h2>Welcome to StockHarz</h2><span>Research any US stock, keep a watchlist, set price alerts and track your portfolio, all free. To load live data, add a free Finnhub key (and optionally a free Twelve Data key for charts) in Settings. Everything you save stays in this browser.</span><span class="small">Already set up on another device? Open StockHarz there, go to Settings and use <b>Copy setup link</b>, then open that link here.</span><div class="row"><a class="btn primary" href="#settings">Set up in 1 minute</a><a class="btn" href="#stock/AAPL/chart">See an AAPL chart now</a></div></section>` : ''}
   <section><div class="card-h"><h1>Market today</h1><span class="small muted">US index funds and Bursa Malaysia</span></div>
     <div class="grid g4" id="mkt">${skel(80)}</div></section>
-  <section class="card" id="ideas"></section>
   <section class="card" id="sp500"></section>
   <div class="split">
     <section class="card"><div class="card-h"><h2>Your watchlist</h2><a class="btn sm" href="#watchlist">Open watchlist</a></div><div id="hw"></div></section>
@@ -1239,7 +1239,6 @@ function pageHome() {
     <section class="card"><div class="card-h"><h2>Market news</h2></div><div id="hn"></div></section>
     <section class="card"><div class="card-h"><h2>Upcoming earnings</h2><span class="small muted">From your watchlist</span></div><div id="he"></div></section>
   </div>`;
-  renderIdeas($('#ideas'));
   renderSp500($('#sp500'));
   const IDX = [['SPY', 'S&P 500'], ['QQQ', 'Nasdaq 100'], ['DIA', 'Dow Jones']];
   load($('#mkt'), async el => {
@@ -1405,9 +1404,14 @@ const IDEAS = [
     rules: ['Shariah compliant (estimate)', 'Wide or narrow moat', '10%+ below Harz Fair Value'], need: [],
     test: x => x.sh === 'C' && goodMoat(x) && gapPct(x) <= -10, sort: byGap, cols: ['gap', 'roe', 'dy'] },
 ];
-function renderIdeas(el) {
+function pageScreens() {
+  setNav('screens');
+  app.innerHTML = `<section class="card" id="ideas"></section>`;
+  renderIdeas($('#ideas'), true);
+}
+function renderIdeas(el, page) {
   if (!el) return;
-  const head = `<div class="card-h"><div><h2>Screening ideas</h2><div class="small muted">Ready-made scans of the S&amp;P 500 using StockHarz's own fair value, moat and Shariah ratings. Pick one and press Run scan.</div></div></div>`;
+  const head = `<div class="card-h"><div><${page ? 'h1' : 'h2'}>Screening ideas</${page ? 'h1' : 'h2'}><div class="small muted">Ready-made scans of the S&amp;P 500 using StockHarz's own fair value, moat and Shariah ratings. Pick one and press Run scan.</div></div></div>`;
   el.innerHTML = head + skel(160);
   loadSp500().then(d => drawIdeas(el, d, head)).catch(() => {
     if (!el.isConnected) return;
@@ -1442,7 +1446,7 @@ function drawIdeas(el, d, head) {
     bindRows(box);
     const more = $('#idmore', box); if (more) more.addEventListener('click', () => { st.all = true; results(); });
     $('#idx', box).addEventListener('click', () => { st.id = null; cards(); results(); });
-    if (scroll) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (scroll) { const tb = $('.topbar'); window.scrollTo({ top: $('.idea-res', box).getBoundingClientRect().top + window.scrollY - (tb ? tb.offsetHeight : 0) - 10, behavior: 'smooth' }); }
   };
   $('#idsh', el).addEventListener('change', e => { st.sh = e.target.checked; store.set('ideaSh', st.sh); cards(); results(); });
   cards();
