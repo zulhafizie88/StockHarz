@@ -31,8 +31,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/sp500.json
-          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
-          git commit -m "Update S&P 500 valuation and moat data"
-          git pull --rebase origin main
-          git push
+          # Start from the latest main so a newer commit of the same file can't cause a conflict.
+          cp data/sp500.json "$RUNNER_TEMP/sp500.json"
+          for i in 1 2 3; do
+            git fetch origin main && git reset --hard origin/main
+            cp "$RUNNER_TEMP/sp500.json" data/sp500.json
+            git add data/sp500.json
+            if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+            git commit -m "Update S&P 500 valuation and moat data"
+            git push origin HEAD:main && exit 0
+            sleep 5
+          done
+          exit 1
