@@ -116,6 +116,26 @@ label.f{display:grid;gap:4px;font-size:.8rem;color:var(--muted);font-weight:500}
 .range{position:relative;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--down-soft),var(--surface-2),var(--up-soft));margin:8px 0 4px}
 .range i{position:absolute;top:-4px;width:3px;height:14px;border-radius:2px;background:var(--fg);transform:translateX(-50%)}
 .bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+.fvc{display:grid;grid-template-columns:minmax(110px,230px) minmax(0,1fr);column-gap:12px;row-gap:6px;position:relative;align-items:center}
+.fvc-l{font-size:.82rem;line-height:1.25;text-align:right;cursor:help}
+.fvc-l small{display:block;color:var(--muted);font-family:var(--f-mono);font-size:.68rem}
+.fvc-total{font-weight:700;padding-top:6px;border-top:1px solid var(--line)}
+.fvc-t{display:flex;align-items:center;gap:6px;min-height:26px;position:relative;min-width:0}
+.fvc-total + .fvc-t{padding-top:6px;border-top:1px solid var(--line)}
+.fvc-b{height:18px;border-radius:0 5px 5px 0;flex:none;min-width:2px}
+.fvc-b.hi{background:var(--accent)} .fvc-b.lo{background:var(--orange)}
+.fvc-b.total{background:linear-gradient(90deg,var(--brand-blue),var(--brand-blue-2));height:22px}
+.fvc-t b{font-size:.8rem;white-space:nowrap;position:relative;z-index:1;background:var(--surface);padding:0 3px;border-radius:4px}
+.fvc-b{position:relative;z-index:1}
+.fvc-cap{min-height:20px}
+.fvc-tag{position:absolute;transform:translateX(-50%);font-size:.72rem;font-weight:600;white-space:nowrap;padding:1px 7px;border-radius:999px}
+.fvc-tag.fv{background:var(--orange-soft);color:var(--orange)} .fvc-tag.px{background:var(--surface-2);color:var(--fg)}
+.fvc-ov{grid-column:2;position:absolute;inset:0;pointer-events:none;border-left:1px solid var(--line)}
+.fvc-ov i{position:absolute;top:20px;bottom:20px;width:0}
+.fvc-fv{border-left:2px solid var(--orange)} .fvc-px{border-left:2px dashed var(--muted)}
+.fvc-key{display:inline-block;width:12px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.fvc-key.hi{background:var(--accent)} .fvc-key.lo{background:var(--orange)} .fvc-key.fvl{width:3px;background:var(--orange)} .fvc-key.pxl{width:0;border-left:2px dashed var(--muted);border-radius:0}
+@media (max-width:560px){.fvc{grid-template-columns:96px minmax(0,1fr);column-gap:8px}.fvc-l{font-size:.74rem}.fvc-l small{display:none}.fvc-t b{font-size:.72rem}}
 .bar > span{display:block;height:100%;border-radius:4px;background:var(--accent)}
 .stack{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--surface-2)}
 .stack span{height:100%}
@@ -567,6 +587,11 @@ function fundamentals(q, p, met, fin) {
     last, industry: (p && p.finnhubIndustry) || '',
   };
   f.fcfPS = price && pfcf && pfcf > 0 ? price / pfcf : (last && isNum(last.fcf) && sharesM ? last.fcf / (sharesM * 1e6) : null);
+  f.sps = price && f.ps > 0 ? price / f.ps : (mv(m, 'revenuePerShareTTM', 'revenuePerShareAnnual') ?? (last && isNum(last.revenue) && sharesM ? last.revenue / (sharesM * 1e6) : null));
+  // Last five fiscal years of each multiple (newest first), for the "average multiple" methods.
+  const ser = (met && met.series && met.series.annual) || {};
+  const hs = k => Array.isArray(ser[k]) ? ser[k].slice(0, 5).map(x => +x.v).filter(v => isNum(v) && v > 0 && v < 1000) : [];
+  f.hist = { pe: hs('pe'), ps: hs('ps'), pb: hs('pb') };
   if (!isNum(f.pe) && price && f.eps > 0) f.pe = price / f.eps;
   return f;
 }
@@ -595,15 +620,74 @@ function defaultDcf(f, fin) {
 const isFinancial = f => /bank|insurance|financial services|capital markets/i.test(f.industry || '');
 // Drops estimates that are wildly off the price, usually a data mismatch (share classes, units, one-off items).
 const saneEstimate = (v, price) => isNum(v) && v > 0 && (!isNum(price) || (v < price * 8 && v > price / 8));
-function valuations(f) {
-  const d = isFinancial(f) ? null : dcfModel(defaultDcf(f));
-  const list = [
-    { name: 'Discounted cash flow', v: d && d.perShare },
-    { name: 'Graham number', v: grahamNumber(f) },
-    { name: 'Earnings growth formula', v: grahamGrowth(f) },
-  ].filter(x => saneEstimate(x.v, f.price));
+// 20-year model: grows the cash flow for 10 years at the chosen rate, then 10 more years at a slower rate
+// (4% or the chosen rate, whichever is lower), and counts nothing after year 20. More cautious than a terminal value.
+function dcf20({ cf, g1, r, netCash, shares }) {
+  if (!(cf > 0) || !(shares > 0) || !(r > 0)) return null;
+  const g2 = Math.min(g1, 0.04); let pv = 0, c = cf;
+  for (let y = 1; y <= 20; y++) { c *= 1 + (y <= 10 ? g1 : g2); pv += c / Math.pow(1 + r, y); }
+  return (pv + (netCash || 0)) / shares;
+}
+const VAL_METHODS = [
+  { key: 'cf20', name: 'Cash flow, 20 years', code: 'CF-20', group: 'cash', how: 'Operating cash flow grown for 20 years and discounted to today, plus net cash.' },
+  { key: 'fcf20', name: 'Free cash flow, 20 years', code: 'FCF-20', group: 'cash', how: 'Free cash flow (operating cash flow minus capital spending) grown for 20 years and discounted to today, plus net cash.' },
+  { key: 'ni20', name: 'Net income, 20 years', code: 'NI-20', group: 'cash', how: 'Net profit grown for 20 years and discounted to today, plus net cash.' },
+  { key: 'fcfT', name: 'Free cash flow + terminal value', code: 'FCF-T', group: 'cash', how: 'Free cash flow for 10 years plus a value for every year after, discounted to today, plus net cash. This is the model you can edit below.' },
+  { key: 'ps', name: 'Average price to sales', code: 'P/S', group: 'ratio', how: 'Sales per share × the P/S ratio the stock averaged over the last five fiscal years.' },
+  { key: 'pe', name: 'Average price to earnings', code: 'P/E', group: 'ratio', how: 'Earnings per share × the P/E ratio the stock averaged over the last five fiscal years.' },
+  { key: 'pb', name: 'Average price to book', code: 'P/B', group: 'ratio', how: 'Book value per share × the P/B ratio the stock averaged over the last five fiscal years.' },
+  { key: 'psg', name: 'Growth-adjusted price to sales', code: 'PSG', group: 'ratio', how: 'The average P/S, scaled by how fast sales grow now compared with the last five years (between a quarter and double). Slowing growth pulls it down.' },
+  { key: 'peg', name: 'Growth-adjusted price to earnings', code: 'PEG', group: 'ratio', how: 'Earnings per share × the five-year earnings growth rate, which is a PEG ratio of 1 (growth kept between 5% and 25%).' },
+  { key: 'gn', name: 'Graham number', code: 'Graham', group: 'classic', how: '√(22.5 × EPS × book value per share). Benjamin Graham\'s ceiling for defensive investors.' },
+  { key: 'gg', name: 'Earnings growth formula', code: 'EPS × (8.5 + 2g)', group: 'classic', how: 'EPS × (8.5 + 2 × growth), with growth capped at 20%.' },
+];
+// o can override the cash flow assumptions (fcf, g1, gT, r, netCash, shares), as the Valuation tab's inputs do.
+function valuations(f, o = {}) {
+  const b = defaultDcf(f), a = { ...b };
+  for (const k of Object.keys(b)) if (isNum(o[k])) a[k] = o[k];
+  const fin = isFinancial(f), last = f.last || {};
+  const term = fin ? null : dcfModel(a);
+  const ni = isNum(last.netIncome) ? last.netIncome : (f.eps > 0 && a.shares ? f.eps * a.shares : null);
+  const d20 = cf => fin ? null : dcf20({ cf, g1: a.g1, r: a.r, netCash: a.netCash, shares: a.shares });
+  const H = f.hist || {}, mean = k => H[k] && H[k].length >= 2 ? avg(H[k]) : null;
+  const mPS = mean('ps'), mPE = mean('pe'), mPB = mean('pb');
+  const psgK = isNum(f.revG) && f.revG5 > 0 ? clamp(Math.max(f.revG, 1) / f.revG5, 0.25, 2) : null;
+  const pegG = isNum(f.epsG5) ? clamp(f.epsG5, 5, 25) : null;
+  const raw = {
+    cf20: d20(last.cfo), fcf20: d20(a.fcf), ni20: d20(ni), fcfT: term && term.perShare,
+    ps: mPS && f.sps > 0 ? mPS * f.sps : null,
+    pe: mPE && f.eps > 0 ? mPE * f.eps : null,
+    pb: mPB && f.bvps > 0 ? mPB * f.bvps : null,
+    psg: mPS && psgK && f.sps > 0 ? mPS * psgK * f.sps : null,
+    peg: pegG && f.eps > 0 ? f.eps * pegG : null,
+    gn: grahamNumber(f), gg: grahamGrowth(f),
+  };
+  const all = VAL_METHODS.map(x => {
+    const v = isNum(raw[x.key]) && raw[x.key] > 0 ? raw[x.key] : null;
+    const ok = saneEstimate(v, f.price);
+    const why = ok ? '' : fin && x.group === 'cash' ? 'Not used for banks and insurers' : v == null ? 'Not enough data' : 'Far from the price, likely a data problem';
+    return { ...x, v, ok, why };
+  });
+  const list = all.filter(x => x.ok);
   const blend = list.length ? median(list.map(x => x.v)) : null;
-  return { list, blend };
+  return { all, list, blend, term, inputs: a, psgK, pegG, means: { ps: mPS, pe: mPE, pb: mPB } };
+}
+// Horizontal bar chart of every method, with lines for the fair value (median) and today's price.
+function fvChart(val, price) {
+  const vs = val.list.map(x => x.v).concat(isNum(val.blend) ? [val.blend] : [], isNum(price) ? [price] : []);
+  const max = (vs.length ? Math.max(...vs) : 1) * 1.35;
+  const pos = v => clamp(v / max) * 100;
+  const tag = v => { const x = pos(v); return `left:${x}%;transform:translateX(${x > 70 ? -100 : x < 18 ? 0 : -50}%)`; };
+  const row = x => `<div class="fvc-l" title="${esc(x.how)}">${esc(x.name)}<small>${esc(x.code)}</small></div><div class="fvc-t">${x.ok ? `<span class="fvc-b ${x.v >= price ? 'hi' : 'lo'}" style="width:${pos(x.v)}%"></span><b class="num">${fmt.money(x.v)}</b>` : `<span class="small muted">${esc(x.why)}</span>`}</div>`;
+  const lines = [isNum(price) ? `<i class="fvc-px" style="left:${pos(price)}%"></i>` : '', isNum(val.blend) ? `<i class="fvc-fv" style="left:${pos(val.blend)}%"></i>` : ''].join('');
+  return `<div class="fvc" role="img" aria-label="Fair value from ${val.list.length} methods. Harz Fair Value ${fmt.money(val.blend)}, price ${fmt.money(price)}.">
+    <div></div><div class="fvc-t fvc-cap">${isNum(val.blend) ? `<span class="fvc-tag fv" style="${tag(val.blend)}">Harz Fair Value ${fmt.money(val.blend)}</span>` : ''}</div>
+    ${val.all.map(row).join('')}
+    <div class="fvc-l fvc-total">Harz Fair Value<small>middle of ${val.list.length}</small></div><div class="fvc-t">${isNum(val.blend) ? `<span class="fvc-b total" style="width:${pos(val.blend)}%"></span><b class="num">${fmt.money(val.blend)}</b>` : '<span class="small muted">Not enough data</span>'}</div>
+    <div></div><div class="fvc-t fvc-cap">${isNum(price) ? `<span class="fvc-tag px" style="${tag(price)}">Price ${fmt.money(price)}</span>` : ''}</div>
+    <div class="fvc-ov" style="grid-row:1 / ${val.all.length + 4}" aria-hidden="true">${lines}</div>
+  </div>
+  <div class="row small muted" style="gap:14px;margin-top:10px"><span><i class="fvc-key hi"></i>Above today's price</span><span><i class="fvc-key lo"></i>Below today's price</span><span><i class="fvc-key fvl"></i>Harz Fair Value</span><span><i class="fvc-key pxl"></i>Price</span></div>`;
 }
 function verdict(fair, price) {
   if (!isNum(fair) || !isNum(price)) return { label: 'Not enough data', tone: '' , gap: null };
@@ -646,7 +730,7 @@ function buildInsights(f, extras = {}) {
   if (isNum(f.beta) && f.beta > 1.4) add('warn', `Beta of ${fmt.n(f.beta)} means the stock tends to swing more than the market.`);
   if (extras.earnings && extras.earnings.length) { const e = extras.earnings.slice(0, 4); const beats = e.filter(x => isNum(x.actual) && isNum(x.estimate) && x.actual >= x.estimate).length; add(beats >= 3 ? 'good' : beats <= 1 ? 'warn' : 'info', `Beat analyst earnings estimates in ${beats} of the last ${e.length} quarters.`); }
   if (extras.recs && extras.recs[0]) { const r = extras.recs[0]; const tot = r.strongBuy + r.buy + r.hold + r.sell + r.strongSell; if (tot) { const b = (r.strongBuy + r.buy) / tot * 100; add(b >= 60 ? 'good' : b < 35 ? 'warn' : 'info', `${Math.round(b)}% of ${tot} analysts rate it a buy.`); } }
-  if (extras.val) { const v = verdict(extras.val.blend, f.price); if (v.gap != null) add(v.tone === 'good' ? 'good' : v.tone === 'bad' ? 'warn' : 'info', `Our middle fair value estimate is ${fmt.money(extras.val.blend)}, ${Math.abs(v.gap).toFixed(0)}% ${v.gap >= 0 ? 'above' : 'below'} the current price.`); }
+  if (extras.val) { const v = verdict(extras.val.blend, f.price); if (v.gap != null) add(v.tone === 'good' ? 'good' : v.tone === 'bad' ? 'warn' : 'info', `Our Harz Fair Value is ${fmt.money(extras.val.blend)}, ${Math.abs(v.gap).toFixed(0)}% ${v.gap >= 0 ? 'above' : 'below'} the current price.`); }
   return out;
 }
 
@@ -1203,7 +1287,7 @@ function drawSp500(el, d) {
       <button class="btn" type="button" id="spall">Show all groups</button>
     </div>
     <div id="spg" class="grid" style="gap:12px;margin-top:12px"></div>
-    <p class="small muted" style="margin:10px 0 0">Fair value is the middle of three estimates (cash flow model, Graham number, earnings growth formula) using default assumptions. Click a ticker for the full analysis. Not investment advice.</p>`;
+    <p class="small muted" style="margin:10px 0 0">Fair value is Harz Fair Value: the middle of up to eleven estimates (cash flow models, the stock's usual multiples, PSG and PEG, and two classic formulas) using default assumptions. Click a ticker for the full analysis. Not investment advice.</p>`;
   $('#sps', el).value = st.sort;
   const grid = () => {
     const sorters = { az: (a, b) => a.s.localeCompare(b.s), disc: (a, b) => (a.price / a.iv) - (b.price / b.iv), cap: (a, b) => (b.mcap || 0) - (a.mcap || 0) };
@@ -1519,7 +1603,7 @@ function tabOverview(s, el, id) {
     const { q, p, m } = await bundle; const fin = await D.financials(s).catch(() => null); const f = fundamentals(q, p, m, fin); const sc = harzScore(f);
     const val = valuations(f); const v = verdict(val.blend, f.price);
     box.innerHTML = `<div class="card-h"><h2>Harz Score</h2><a class="small" href="#stock/${s}/score">How it's scored</a></div><div class="row" style="gap:16px;flex-wrap:nowrap">${scoreRing(sc.total, sc.grade)}<div class="grid" style="gap:6px;flex:1;min-width:0">${sc.pillars.map(pl => `<div><div class="row small" style="gap:6px"><span>${pl.key}</span><span class="spacer"></span><span class="num muted">${pl.score ?? '–'}/20</span></div><div class="bar"><span style="width:${(pl.score || 0) * 5}%"></span></div></div>`).join('')}</div></div>
-      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><div class="eyebrow">Fair value estimate</div><div class="row" style="align-items:baseline"><span class="kpi"><span class="v">${fmt.money(val.blend)}</span></span><span class="pill ${v.tone}">${v.label}${v.gap != null ? ` · ${v.gap > 0 ? '+' : ''}${v.gap.toFixed(0)}%` : ''}</span></div><a class="small" href="#stock/${s}/valuation">See full valuation</a></div>
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><div class="eyebrow">Harz Fair Value</div><div class="row" style="align-items:baseline"><span class="kpi"><span class="v">${fmt.money(val.blend)}</span></span><span class="pill ${v.tone}">${v.label}${v.gap != null ? ` · ${v.gap > 0 ? '+' : ''}${v.gap.toFixed(0)}%` : ''}</span></div><a class="small" href="#stock/${s}/valuation">See full valuation</a></div>
       <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px" class="row"><span class="eyebrow">Economic moat</span><span class="spacer"></span>${(() => { const mo = moatAnalysis(f, fin); return `<span class="pill ${moatTone(mo.rating)}">${mo.rating}</span>`; })()}<a class="small" href="#stock/${s}/moat">Why</a></div>`;
   });
   load($('#ov-about'), async box => {
@@ -1620,10 +1704,10 @@ function tabValuation(s, el) {
     const fin = await D.financials(s).catch(() => null);
     const f = fundamentals(q, p, m, fin);
     const d0 = defaultDcf(f);
-    const gn = grahamNumber(f), gg = grahamGrowth(f);
-    box.innerHTML = `<section class="card" id="vverdict">${skel(90)}</section><section class="card"><div class="card-h"><div><h2>Fair value</h2><div class="small muted">Three classic ways to estimate what one share is worth. The headline figure is the middle of the three. Change the assumptions to see how sensitive the answer is.</div></div></div><div id="vsum"></div></section>
-    <div class="split"><section class="card"><h2>Discounted cash flow</h2>
-      <p class="small muted" style="margin:0 0 12px">Adds up the free cash flow the company may earn over the next 10 years, discounted back to today, plus a value for everything after.</p>
+    const v0 = valuations(f), gn = grahamNumber(f), gg = grahamGrowth(f);
+    box.innerHTML = `<section class="card" id="vverdict">${skel(90)}</section><section class="card"><div class="card-h"><div><h2>Harz Fair Value</h2><div class="small muted">Eleven ways to estimate what one share is worth: four cash flow models, five based on the stock's usual multiples and growth, and two classic formulas. Harz Fair Value is the middle of them, so no single method decides. Hover or tap a method's name to see how it works.</div></div></div><div id="vsum"></div></section>
+    <div class="split"><section class="card"><h2>Cash flow models</h2>
+      <p class="small muted" style="margin:0 0 12px">These inputs drive all four cash flow models. The model shown here adds up free cash flow for the next 10 years, discounted back to today, plus a value for everything after. The 20-year models grow cash flow, free cash flow and net profit for 10 years at the growth rate below, then 10 years at no more than 4%, and stop there.</p>
       <div class="formgrid">
         <label class="f">Starting free cash flow ($B)<input class="in" id="d-fcf" type="number" step="0.01" value="${isNum(d0.fcf) ? (d0.fcf / 1e9).toFixed(2) : ''}"></label>
         <label class="f">Growth, years 1–5 (%)<input class="in" id="d-g" type="number" step="0.5" value="${(d0.g1 * 100).toFixed(1)}"></label>
@@ -1633,6 +1717,8 @@ function tabValuation(s, el) {
         <label class="f">Shares (millions)<input class="in" id="d-s" type="number" step="1" value="${f.sharesM ? f.sharesM.toFixed(0) : ''}"></label>
       </div><div id="dout" style="margin-top:14px"></div></section>
       <section class="card"><h2>Other methods</h2><div class="grid" style="gap:14px">
+        <div><div class="eyebrow">Usual multiples, last five years</div><div class="small" style="margin-top:4px">Average P/S ${fmt.x(v0.means.ps)} × sales per share ${fmt.money(f.sps)}<br>Average P/E ${fmt.x(v0.means.pe)} × EPS ${fmt.money(f.eps)}<br>Average P/B ${fmt.x(v0.means.pb)} × book value per share ${fmt.money(f.bvps)}</div><div class="small muted">If the stock went back to the price it usually trades at for its sales, profit and book value.</div></div>
+        <div><div class="eyebrow">Growth-adjusted multiples</div><div class="small" style="margin-top:4px">PSG: average P/S × ${isNum(v0.psgK) ? fmt.n(v0.psgK) : '–'} (sales growth now ${fmt.pct(f.revG, 1)} vs ${fmt.pct(f.revG5, 1)} a year over five years)<br>PEG: EPS ${fmt.money(f.eps)} × ${isNum(v0.pegG) ? fmt.n(v0.pegG, 1) : '–'} (five-year earnings growth)</div><div class="small muted">Pay more for faster growth and less when growth slows.</div></div>
         <div><div class="eyebrow">Graham number</div><div class="kpi"><span class="v">${fmt.money(gn)}</span></div><div class="small muted">√(22.5 × EPS ${fmt.money(f.eps)} × book value per share ${fmt.money(f.bvps)}). A conservative ceiling for defensive investors.</div></div>
         <div><div class="eyebrow">Earnings growth formula</div><div class="kpi"><span class="v">${fmt.money(gg)}</span></div><div class="small muted">EPS × (8.5 + 2 × growth). Uses ${fmt.pct(clamp(isNum(f.epsG5) ? f.epsG5 : (f.revG5 || 5), 0, 20), 1)} yearly growth, capped at 20%.</div></div>
       </div></section></div>
@@ -1640,13 +1726,12 @@ function tabValuation(s, el) {
     const ids = ['d-fcf', 'd-g', 'd-t', 'd-r', 'd-n', 'd-s'];
     const run = () => {
       const v = Object.fromEntries(ids.map(i => [i, parseFloat($('#' + i).value)]));
-      const res = dcfModel({ fcf: v['d-fcf'] * 1e9, g1: v['d-g'] / 100, gT: v['d-t'] / 100, r: v['d-r'] / 100, netCash: (v['d-n'] || 0) * 1e9, shares: v['d-s'] * 1e6 });
-      const list = [['Discounted cash flow', isFinancial(f) ? null : res && res.perShare], ['Graham number', gn], ['Earnings growth formula', gg]].filter(x => saneEstimate(x[1], f.price));
-      const blend = list.length ? median(list.map(x => x[1])) : null; const vd = verdict(blend, f.price);
-      const max = Math.max(f.price || 0, ...list.map(x => x[1])) * 1.1 || 1;
-      $('#vsum').innerHTML = `<div class="row" style="gap:24px;align-items:flex-end"><div class="kpi"><span class="eyebrow">Fair value (middle estimate)</span><span class="v" style="font-size:2rem">${fmt.money(blend)}</span></div><div class="kpi"><span class="eyebrow">Current price</span><span class="v">${fmt.money(f.price)}</span></div><span class="pill ${vd.tone}" style="font-size:.85rem">${vd.label}${vd.gap != null ? ` · ${vd.gap > 0 ? '+' : ''}${vd.gap.toFixed(0)}% vs price` : ''}</span></div>
-      <div class="grid" style="gap:8px;margin-top:16px">${[...list, ['Current price', f.price]].map(([n, v]) => `<div class="row small" style="flex-wrap:nowrap"><span style="width:170px;flex:none">${n}</span><div class="bar" style="flex:1"><span style="width:${clamp(v / max) * 100}%;background:${n === 'Current price' ? 'var(--fg)' : v >= f.price ? 'var(--up)' : 'var(--down)'}"></span></div><span class="num" style="width:90px;text-align:right">${fmt.money(v)}</span></div>`).join('')}</div>
-      ${isFinancial(f) ? '<p class="small muted" style="margin:12px 0 0">The cash flow model is left out of the middle estimate for banks and insurers, because their cash flow includes customer deposits and claims.</p>' : ''}${[['Graham number', gn], ['Earnings growth formula', gg], ['Discounted cash flow', res && res.perShare]].some(x => isNum(x[1]) && x[1] > 0 && !saneEstimate(x[1], f.price)) ? '<p class="small muted" style="margin:6px 0 0">Estimates more than 8 times above or below the price are left out, because that usually means a data problem.</p>' : ''}<p class="small muted" style="margin:12px 0 0">Estimates, not predictions. Small changes to growth or the discount rate move the answer a lot.</p>`;
+      const val = valuations(f, { fcf: v['d-fcf'] * 1e9, g1: v['d-g'] / 100, gT: v['d-t'] / 100, r: v['d-r'] / 100, netCash: (v['d-n'] || 0) * 1e9, shares: v['d-s'] * 1e6 });
+      const res = val.term, vd = verdict(val.blend, f.price);
+      const cashN = val.all.filter(x => x.group === 'cash' && x.ok).length;
+      $('#vsum').innerHTML = `<div class="row" style="gap:24px;align-items:flex-end;margin-bottom:14px"><div class="kpi"><span class="eyebrow">Harz Fair Value</span><span class="v" style="font-size:2rem">${fmt.money(val.blend)}</span></div><div class="kpi"><span class="eyebrow">Current price</span><span class="v">${fmt.money(f.price)}</span></div><span class="pill ${vd.tone}" style="font-size:.85rem">${vd.label}${vd.gap != null ? ` · ${vd.gap > 0 ? '+' : ''}${vd.gap.toFixed(0)}% vs price` : ''}</span></div>
+      ${fvChart(val, f.price)}
+      ${isFinancial(f) ? '<p class="small muted" style="margin:12px 0 0">Cash flow models are left out for banks and insurers, because their cash flow includes customer deposits and claims.</p>' : ''}${val.all.some(x => x.v != null && !x.ok) ? '<p class="small muted" style="margin:6px 0 0">Estimates more than 8 times above or below the price are left out, because that usually means a data problem.</p>' : ''}<p class="small muted" style="margin:12px 0 0">${cashN ? 'The cash flow models use the assumptions below, so changing them moves the chart. ' : ''}Estimates, not predictions. Small changes to growth or the discount rate move the answer a lot.</p>`;
       $('#dout').innerHTML = res ? `<div class="row" style="align-items:baseline"><div class="kpi"><span class="eyebrow">Value per share</span><span class="v">${fmt.money(res.perShare)}</span></div><span class="spacer"></span><span class="small muted">Next 10 years ${fmt.big(res.pv)} + later years ${fmt.big(res.pvTv)}</span></div><details style="margin-top:10px"><summary class="small">Year-by-year cash flows</summary><div class="tbl-wrap"><table><thead><tr><th>Year</th><th class="r">Growth</th><th class="r">Cash flow</th><th class="r">Worth today</th></tr></thead><tbody>${res.rows.map(r => `<tr><td>${r.y}</td><td class="r num">${fmt.pct(r.g * 100, 1)}</td><td class="r num">${fmt.big(r.cf)}</td><td class="r num">${fmt.big(r.disc)}</td></tr>`).join('')}</tbody></table></div></details>` : '<div class="note">Enter a positive free cash flow and shares, and keep the discount rate above long-term growth.</div>';
     };
     ids.forEach(i => $('#' + i).addEventListener('input', run));
@@ -1880,6 +1965,9 @@ function pageGlossary() {
     ['Free cash flow', 'Cash from operations minus money spent on equipment and buildings. Cash that could be paid out or reinvested.'],
     ['Graham number', "Benjamin Graham's rough ceiling price for a defensive investor: the square root of 22.5 × EPS × book value per share."],
     ['Gross margin', 'Revenue minus the direct cost of making the product, as a share of revenue.'],
+    ['Harz Fair Value', 'StockHarz\'s own fair value per share: the middle of up to eleven estimates (four cash flow models, average P/S, P/E and P/B, growth-adjusted PSG and PEG, the Graham number and the earnings growth formula). See the Valuation tab on any stock.'],
+    ['PEG ratio', 'P/E divided by the earnings growth rate. A PEG of 1 means you pay one times earnings for each point of growth, a classic rule of thumb for fair price.'],
+    ['PSG ratio', 'Price to sales divided by the sales growth rate. Like PEG, but uses sales, so it works for companies with thin or no profits.'],
     ['Harz Score', 'StockHarz\'s own 0 to 100 checkup across value, quality, growth, financial health and momentum. See the Harz Score tab on any stock for the rules.'],
     ['Interest coverage', 'Operating profit divided by interest owed. Below 3 can be a warning sign.'],
     ['Economic moat', 'A lasting advantage that protects a company\'s profits from competitors, such as a strong brand, patents, low costs or customers who find it hard to switch. StockHarz rates it Wide, Narrow or None from returns, margins and cash flow over several years.'],
